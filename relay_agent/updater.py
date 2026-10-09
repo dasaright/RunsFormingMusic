@@ -1,6 +1,9 @@
 """Public GitHub release updates for the portable Windows relay."""
 import hashlib
 import json
+import ctypes
+import sys
+import time
 import os
 from pathlib import Path
 import shutil
@@ -114,10 +117,22 @@ INSTALL_SCRIPT = r'''param(
     [string]$Target,
     [int]$ProcessToWait = 0,
     [switch]$NoRestart,
+    [string]$ExecutableName = "RunsformingRelay.exe",
+    [string]$RestartArgument = "",
     [ValidateRange(1,30)][int]$MaxAttempts = 30
 )
 $ErrorActionPreference = 'Stop'
-if ($ProcessToWait -gt 0) { Wait-Process -Id $ProcessToWait -ErrorAction SilentlyContinue }
+New-Item -ItemType Directory -Force -Path (Join-Path $Target 'Files') | Out-Null
+Start-Transcript -Path (Join-Path $Target 'Files/update-install.log') -Force | Out-Null
+'Relay installer started.' | Set-Content -LiteralPath (Join-Path $Stage 'installer-ready')
+if ($ProcessToWait -gt 0) { Wait-Process -Id $ProcessToWait -Timeout 60 -ErrorAction SilentlyContinue }
+# Restart must unpack a fresh one-file runtime after the old runtime is removed.
+Get-ChildItem Env: | Where-Object { $_.Name -like '_PYI*' -or $_.Name -eq '_MEIPASS2' } | ForEach-Object { Remove-Item "Env:$($_.Name)" }
+$env:PYINSTALLER_RESET_ENVIRONMENT = '1'
+function Destination($file) {
+    if ($file -eq 'RunsformingRelay.exe') { return (Join-Path $Target $ExecutableName) }
+    return (Join-Path $Target $file)
+}
 $files = @('RunsformingRelay.exe', 'README.md', 'Files/ffmpeg.exe', 'Files/yt-dlp.exe')
 $installed = $false
 try {
@@ -126,7 +141,7 @@ New-Item -ItemType Directory -Force -Path $backup | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $Target 'Files') | Out-Null
 $existed = @{}
 foreach ($file in $files) {
-    $old = Join-Path $Target $file
+    $old = Destination $file
     $saved = Join-Path $backup $file
     $existed[$file] = Test-Path -LiteralPath $old -PathType Leaf
     if ($existed[$file]) {
@@ -138,20 +153,21 @@ $installed = $false
 for ($attempt = 0; $attempt -lt $MaxAttempts; $attempt++) {
     try {
         foreach ($file in $files) {
-            Copy-Item -LiteralPath (Join-Path (Join-Path $Stage 'payload') $file) -Destination (Join-Path $Target $file) -Force
+            Copy-Item -LiteralPath (Join-Path (Join-Path $Stage 'payload') $file) -Destination (Destination $file) -Force
         }
         $installed = $true
         break
     } catch {
+        Write-Output $_
         foreach ($file in $files) {
-            $old = Join-Path $Target $file
+            $old = Destination $file
             if ($existed[$file]) { Copy-Item -LiteralPath (Join-Path $backup $file) -Destination $old -Force -ErrorAction SilentlyContinue }
             else { Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue }
         }
         if ($attempt -lt ($MaxAttempts - 1)) { Start-Sleep -Seconds 1 }
     }
 }
-} catch { $installed = $false }
+} catch { Write-Output $_; $installed = $false }
 try {
 if ($installed) {
     # Clean up obsolete dependency locations after the new bundle is installed.
@@ -164,9 +180,18 @@ if ($installed) {
 }
 } catch {}
 if (-not $NoRestart) {
-    Start-Process -FilePath (Join-Path $Target 'RunsformingRelay.exe') -WorkingDirectory $Target
+    try {
+        $options = @{ FilePath = (Join-Path $Target $ExecutableName); WorkingDirectory = $Target; PassThru = $true }
+        if ($RestartArgument) { $options.ArgumentList = $RestartArgument }
+        $restarted = Start-Process @options
+        Write-Output "Restarted relay process $($restarted.Id)"
+    } catch {
+        Write-Output $_
+        'Update finished but restart failed. Open the relay manually. See update-install.log.' | Set-Content -LiteralPath (Join-Path $Target 'Files/update-status.txt')
+    }
     if ($installed) { Remove-Item -LiteralPath $Stage -Recurse -Force -ErrorAction SilentlyContinue }
 }
+Stop-Transcript | Out-Null
 if (-not $installed) { exit 1 }
 '''
 
@@ -177,9 +202,44 @@ def write_install_script(stage):
     return script
 
 
-def launch_installer(stage, target):
+def installer_environment():
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith('_PYI') and key != '_MEIPASS2'}
+    env['PYINSTALLER_RESET_ENVIRONMENT'] = '1'
+    bundle = str(getattr(sys, '_MEIPASS', ''))
+    if bundle:
+        env['PATH'] = os.pathsep.join(part for part in env.get('PATH', '').split(os.pathsep)
+                                    if not part.startswith(bundle))
+    return env
+
+
+def launch_installer(stage, target, restart_argument=''):
+    stage, target = Path(stage), Path(target)
     script = write_install_script(stage)
-    subprocess.Popen(['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-        '-File', str(script), '-Stage', str(stage), '-Target', str(target), '-ProcessToWait', str(os.getpid())],
-        creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
-        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    ready = stage / 'installer-ready'
+    ready.unlink(missing_ok=True)
+    executable = Path(sys.executable).name if getattr(sys, 'frozen', False) else 'RunsformingRelay.exe'
+    powershell = Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
+    log_path = target / 'Files/update-launch.log'
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    frozen = getattr(sys, 'frozen', False)
+    if frozen:
+        ctypes.windll.kernel32.SetDllDirectoryW(None)
+    try:
+        with log_path.open('wb') as log:
+            process = subprocess.Popen([str(powershell), '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+                '-File', str(script), '-Stage', str(stage), '-Target', str(target),
+                '-ExecutableName', executable, '-RestartArgument', restart_argument,
+                '-ProcessToWait', str(os.getpid())],
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                env=installer_environment(), cwd=str(stage), close_fds=True,
+                stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+    finally:
+        if frozen:
+            ctypes.windll.kernel32.SetDllDirectoryW(str(sys._MEIPASS))
+    deadline = time.monotonic() + 15
+    while not ready.is_file():
+        if process.poll() is not None or time.monotonic() >= deadline:
+            raise RuntimeError('Installer did not start. Relay remains open; see Files/update-launch.log.')
+        time.sleep(0.05)
+    return process

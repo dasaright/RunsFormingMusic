@@ -155,3 +155,5 @@ Use `!token` in Discord (server or DM) to receive a personal token privately. Ea
 Automatic updates wait for actual audio running on this PC, not remote queued music. Manual checks install when downloaded; **Install update now** installs a pending update immediately, interrupting this relay's audio. Both clip folders and configuration are preserved.
 
 The song pane retains previous songs for the current session. Click any song to switch to it and continue from there; the current song remains highlighted. Stop/leave clears the session playlist. Install update now is disabled until an update is downloaded. The bot remains in voice while at least one connected personal relay's Discord user is present in that channel; otherwise the usual five-minute idle timeout applies.
+
+Update failures are recorded in `Files/update-launch.log` and `Files/update-install.log`. The relay only closes after the independent installer confirms it has started. Restart uses a fresh executable runtime, and renamed relay executables are updated in place. A failed update delays automatic retry until the next scheduled check; manual retry remains available.

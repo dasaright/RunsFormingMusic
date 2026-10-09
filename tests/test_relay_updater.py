@@ -164,3 +164,14 @@ class InstallButtonTests(UpdateWindowTests):
         window.update_idle_since=None
         window.poll_updates()
         window.install_button.configure.assert_called_with(state='normal')
+
+class InstallerEnvironmentTests(unittest.TestCase):
+    def test_restart_does_not_reuse_old_pyinstaller_runtime(self):
+        from relay_agent.updater import installer_environment
+        with patch.dict('os.environ', {'_PYI_APPLICATION_HOME_DIR':'old-temp','_PYI_PARENT_PROCESS_LEVEL':'1','_MEIPASS2':'old-temp','OTHER':'keep'}):
+            env=installer_environment()
+        self.assertNotIn('_PYI_APPLICATION_HOME_DIR',env)
+        self.assertNotIn('_PYI_PARENT_PROCESS_LEVEL',env)
+        self.assertNotIn('_MEIPASS2',env)
+        self.assertEqual(env['PYINSTALLER_RESET_ENVIRONMENT'],'1')
+        self.assertEqual(env['OTHER'],'keep')

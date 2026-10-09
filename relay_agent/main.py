@@ -593,7 +593,11 @@ class RelayWindow:
         ttk.Label(update_bar, text=f"RunsFormingMusic v1.{RELAY_BUILD}").pack(side="right")
         self.update_check_running = False
         self.pending_update = None
-        self.next_update_check = 0
+        status_file = FILES_DIR / "update-status.txt"
+        failed_update = status_file.is_file() and "failed" in status_file.read_text(encoding="utf-8-sig", errors="replace").lower()
+        self.next_update_check = time.monotonic() + 6 * 60 * 60 if failed_update else 0
+        if failed_update:
+            self.status.set("Previous update failed. See Files/update-install.log; use Check for updates to retry.")
         self.update_idle_since = None
         self.last_music = None
         self.next_music_refresh = 0
@@ -605,7 +609,11 @@ class RelayWindow:
     def toggle_auto_update(self):
         self.config["auto_update"] = self.auto_update.get()
         self.save()
-        self.next_update_check = 0
+        status_file = FILES_DIR / "update-status.txt"
+        failed_update = status_file.is_file() and "failed" in status_file.read_text(encoding="utf-8-sig", errors="replace").lower()
+        self.next_update_check = time.monotonic() + 6 * 60 * 60 if failed_update else 0
+        if failed_update:
+            self.status.set("Previous update failed. See Files/update-install.log; use Check for updates to retry.")
 
     def check_updates(self, manual=False):
         if self.update_check_running or self.pending_update is not None:
@@ -945,7 +953,13 @@ def main():
 
 
 if __name__ == "__main__":
-    if "--self-test" in sys.argv:
+    if "--update-launch-test" in sys.argv:
+        stage = Path(sys.argv[sys.argv.index("--update-launch-test") + 1])
+        launch_installer(stage, APP_DIR, restart_argument="update-restart-test")
+    elif "update-restart-test" in sys.argv:
+        FILES_DIR.mkdir(parents=True, exist_ok=True)
+        (FILES_DIR / "update-restart-ok.txt").write_text(f"Restarted v1.{RELAY_BUILD}", encoding="utf-8")
+    elif "--self-test" in sys.argv:
         try:
             verify_tools()
             test_root = create_root()
