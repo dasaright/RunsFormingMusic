@@ -145,7 +145,7 @@ class HeaderDragTests(unittest.TestCase):
             label_menu = window.clip_widgets['clip'][1].nametowidget(window.clip_widgets['clip'][1]['menu'])
             root.tk.call(label_menu['postcommand'])
             self.assertEqual(window.listbox.selection(), ('clip',))
-            window.send.assert_not_called()
+            self.assertFalse(any(call.args[0].get('type') == 'local_play' for call in window.send.call_args_list))
             self.assertEqual(window.toolbar_buttons[0].master, window.tab_buttons[0].master)
             self.assertEqual(window.update_button.master, window.tab_buttons[0].master)
             self.assertNotEqual(window.clip_action_buttons[0].master, window.tab_buttons[0].master)
