@@ -1124,8 +1124,8 @@ class RelayWindow:
                               self.config.get("clip_settings", {}), getattr(self, "sort_keys", [("name", False)]))
         self.file_ids = ids
         for key in set(self.clip_widgets) - set(ids):
-            for widget in self.clip_widgets.pop(key):
-                widget.destroy()
+            cell = self.clip_widgets.pop(key)
+            cell["menu"].destroy()
         self.listbox.delete(*self.listbox.get_children())
         for key in ids:
             self.listbox.insert("", "end", iid=key, values=(self.agent.local_files[key].stem, "", "☑" if self.clip_origins[key] == "Shared" else "☐", ""))
@@ -1141,7 +1141,7 @@ class RelayWindow:
     def smooth_scroll(self, event, tree, units=None):
         # Preserve high-resolution wheel deltas rather than rounding each event.
         if units is None:
-            units = -event.delta / 120 if sys.platform != "darwin" else -event.delta
+            units = -event.delta / 120 * 3 if sys.platform != "darwin" else -event.delta
         states = getattr(self, "scroll_states", None)
         if states is None:
             self.scroll_states = states = {}
@@ -1191,7 +1191,8 @@ class RelayWindow:
     def set_clip_volume(self, key, value, text):
         volume = round(float(value))
         self.clip_setting(key)["volume"] = volume
-        text.configure(text=f"{volume:+d}%" if volume else "0%")
+        if text is not None:
+            text.configure(text=f"{volume:+d}%" if volume else "0%")
         # Save once dragging settles, keeping the audio loop and UI responsive.
         pending = getattr(self, "volume_save_after", None)
         if pending:
@@ -1202,66 +1203,148 @@ class RelayWindow:
         self.volume_save_after = None
         self.save()
 
+    def ensure_clip_canvases(self):
+        if hasattr(self, "clip_canvases"):
+            return
+        self.clip_canvases = {}
+        self.clip_slider_drag = None
+        for column in ("volume", "label"):
+            canvas = tk.Canvas(self.listbox, background="#ffffff", borderwidth=0,
+                               highlightthickness=0, yscrollincrement=1)
+            self.clip_canvases[column] = canvas
+            self.bind_smooth_scroll(canvas, self.listbox)
+            canvas.bind("<Button-3>", self.canvas_clip_menu)
+        volume = self.clip_canvases["volume"]
+        volume.bind("<ButtonPress-1>", self.canvas_volume_press)
+        volume.bind("<B1-Motion>", self.canvas_volume_drag)
+        volume.bind("<ButtonRelease-1>", self.canvas_volume_release)
+        label = self.clip_canvases["label"]
+        label.bind("<Button-1>", self.canvas_label_menu)
+
     def preload_clip_widgets(self):
-        # Create and configure controls before scrolling, including offscreen rows.
+        # Two drawable surfaces replace hundreds of separately painted HWNDs.
+        self.ensure_clip_canvases()
+        boxes = (self.listbox.bbox(key) for key in self.file_ids)
+        first_box = next((box for box in boxes if box), None)
+        self.clip_row_height = first_box[3] if first_box else int(ttk.Style(self.root).lookup(
+            self.listbox.cget("style") or "Treeview", "rowheight") or 18)
+        self.clip_position_signature = None
+        self.clip_row_indices = {key: i for i, key in enumerate(self.file_ids)}
+        self.clip_canvas_widths = {c: self.listbox.column(c, "width") for c in self.clip_canvases}
+        for canvas in self.clip_canvases.values():
+            canvas.delete("all")
         for key in self.file_ids:
             if key not in self.clip_widgets:
-                frame = ttk.Frame(self.listbox, style="Clip.TFrame")
-                text = ttk.Label(frame, width=6, style="Clip.TLabel")
-                text.pack(side="right")
-                scale = ttk.Scale(frame, from_=-100, to=100,
-                                  command=lambda value, k=key, t=text: self.set_clip_volume(k, value, t))
-                scale.set(self.clip_setting(key).get("volume", 0))
-                scale.pack(side="left", fill="x", expand=True)
-                label = tk.Menubutton(self.listbox, relief="flat", anchor="w", indicatoron=False, borderwidth=0,
-                                      highlightthickness=0, padx=10, font=("Segoe UI", 9))
-                menu = themed_menu(label)
+                menu = themed_menu(self.root)
                 menu.configure(postcommand=lambda k=key: self.select_label_row(k))
-                label.configure(menu=menu)
-                self.clip_widgets[key] = (frame, label)
-                for widget in (frame, label, *frame.winfo_children()):
-                    self.bind_smooth_scroll(widget, self.listbox)
-                    widget.bind("<Button-3>", lambda event, k=key: self.open_clip_menu(k, event))
-            frame, label = self.clip_widgets[key]
+                self.clip_widgets[key] = {"menu": menu}
+            cell = self.clip_widgets[key]
+            y = self.clip_row_indices[key] * self.clip_row_height
+            volume = self.clip_canvases["volume"]
+            cell["volume"] = (volume.create_line(0, 0, 0, 0, fill="#adb6c3", width=2),
+                              volume.create_oval(0, 0, 0, 0, fill="#29496b", outline=""),
+                              volume.create_text(0, 0, anchor="e", fill="#26364a", font=("Segoe UI", 9)))
+            self.draw_clip_volume(key)
+            label = self.clip_canvases["label"]
             current = self.clip_setting(key).get("label", "")
             color = self.config.get("clip_labels", {}).get(current, "#ffffff")
-            label.configure(text=current or "Select…", background=color, activebackground=color)
-            menu = label["menu"]
-            menu = label.nametowidget(menu)
-            names = tuple(sorted(self.config.get("clip_labels", {}), key=str.casefold))
-            if getattr(label, "clip_menu_names", None) != names:
-                menu.delete(0, "end")
-                for name in ("", *names):
-                    menu.add_command(label=name or "No label", command=lambda k=key, n=name: self.set_clip_label(k, n))
-                label.clip_menu_names = names
+            cell["label"] = (label.create_rectangle(0, y, self.clip_canvas_widths["label"], y + self.clip_row_height,
+                                                    fill=color, outline=""),
+                             label.create_text(10, y + self.clip_row_height / 2, text=current or "Select…",
+                                               anchor="w", fill="#26364a", font=("Segoe UI", 9)))
+            menu = cell["menu"]
+            menu.delete(0, "end")
+            for name in ("", *sorted(self.config.get("clip_labels", {}), key=str.casefold)):
+                menu.add_command(label=name or "No label", command=lambda k=key, n=name: self.set_clip_label(k, n))
+
+    def draw_clip_volume(self, key):
+        canvas = self.clip_canvases["volume"]
+        line, knob, text = self.clip_widgets[key]["volume"]
+        width = self.clip_canvas_widths["volume"]
+        y = self.clip_row_indices[key] * self.clip_row_height + self.clip_row_height / 2
+        left, right = 10, max(11, width - 52)
+        value = max(-100, min(100, self.clip_setting(key).get("volume", 0)))
+        x = left + (right - left) * (value + 100) / 200
+        canvas.coords(line, left, y, right, y)
+        canvas.coords(knob, x - 4, y - 4, x + 4, y + 4)
+        canvas.coords(text, width - 4, y)
+        canvas.itemconfigure(text, text=f"{value:+d}%" if value else "0%")
+
+    def canvas_clip_key(self, event):
+        index = int(event.widget.canvasy(event.y) // self.clip_row_height)
+        return self.file_ids[index] if 0 <= index < len(self.file_ids) else None
+
+    def canvas_volume_press(self, event):
+        self.clip_slider_drag = self.canvas_clip_key(event)
+        if self.clip_slider_drag:
+            self.select_label_row(self.clip_slider_drag)
+            self.canvas_volume_drag(event)
+        return "break"
+
+    def canvas_volume_drag(self, event):
+        key = self.clip_slider_drag
+        if key:
+            right = max(11, self.clip_canvas_widths["volume"] - 52)
+            value = max(-100, min(100, (event.x - 10) / (right - 10) * 200 - 100))
+            self.set_clip_volume(key, value, None)
+            self.draw_clip_volume(key)
+        return "break"
+
+    def canvas_volume_release(self, event):
+        self.clip_slider_drag = None
+        return "break"
+
+    def canvas_label_menu(self, event):
+        key = self.canvas_clip_key(event)
+        if key:
+            self.select_label_row(key)
+            menu = self.clip_widgets[key]["menu"]
+            try:
+                menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                menu.grab_release()
+        return "break"
+
+    def canvas_clip_menu(self, event):
+        key = self.canvas_clip_key(event)
+        if key:
+            return self.open_clip_menu(key, event)
+        return "break"
 
     def position_clip_widgets(self):
-        # Identify visible rows in bounded work; reuse every preloaded control.
-        visible = set()
-        row_height = int(ttk.Style(self.root).lookup("Soundboard.Treeview", "rowheight") or 18)
-        for y in range(0, self.listbox.winfo_height(), max(1, row_height // 2)):
-            key = self.listbox.identify_row(y)
-            if key:
-                visible.add(key)
-        previous = getattr(self, "visible_clip_widgets", set())
-        for key in previous - visible:
-            for widget in self.clip_widgets.get(key, ()):
-                widget.place_forget()
-        self.visible_clip_widgets = visible
-        # Compatibility with callers creating rows directly (desktop smoke checks).
-        if any(key not in self.clip_widgets for key in visible):
+        if not self.file_ids:
+            for canvas in getattr(self, "clip_canvases", {}).values():
+                canvas.place_forget()
+            return
+        if not hasattr(self, "clip_canvases"):
             self.preload_clip_widgets()
-        for key in visible:
-            widgets = self.clip_widgets.get(key)
-            if not widgets:
+        widths = {c: self.listbox.column(c, "width") for c in self.clip_canvases}
+        if widths != self.clip_canvas_widths:
+            self.preload_clip_widgets()
+        signature = (self.listbox.yview(), self.listbox.winfo_width(), self.listbox.winfo_height(),
+                     tuple(self.listbox.cget("displaycolumns")))
+        if signature == getattr(self, "clip_position_signature", None):
+            return
+        self.clip_position_signature = signature
+        # Move only two canvas viewports. No per-row widget placement or painting.
+        key = next((self.listbox.identify_row(y) for y in range(0, self.listbox.winfo_height(),
+                    max(1, self.clip_row_height // 2)) if self.listbox.identify_row(y)), None)
+        if key is None:
+            for canvas in self.clip_canvases.values():
+                canvas.place_forget()
+            return
+        offset = self.clip_row_indices[key] * self.clip_row_height
+        for column, canvas in self.clip_canvases.items():
+            box = self.listbox.bbox(key, column)
+            if not box:
+                canvas.place_forget()
                 continue
-            boxes = [self.listbox.bbox(key, column) for column in ("volume", "label")]
-            for widget, box in zip(widgets, boxes):
-                if box:
-                    x, y, width, height = box
-                    widget.place(x=x, y=y, width=width, height=height)
-                else:
-                    widget.place_forget()
+            x, y, width, _ = box
+            height = max(1, self.listbox.winfo_height() - y - 2)
+            total = len(self.file_ids) * self.clip_row_height + height
+            canvas.configure(scrollregion=(0, 0, width, total))
+            canvas.place(x=x, y=y, width=width, height=height)
+            canvas.yview_moveto(offset / total)
 
     def select_label_row(self, key):
         self.clip_pressed_index = None

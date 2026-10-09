@@ -47,21 +47,24 @@ class ClipSettingsTests(unittest.TestCase):
             root.update()
             window.position_clip_widgets()
             root.update()
-            frame, label = window.clip_widgets["a"]
-            self.assertEqual(label.cget("background"), LABEL_COLORS["Light Green"])
-            self.assertEqual(label.cget("text"), "Test")
-            scale = next(w for w in frame.winfo_children() if isinstance(w, ttk.Scale))
-            self.assertEqual(scale.get(), 0)
+            volume, label = window.clip_canvases['volume'], window.clip_canvases['label']
+            rect, text = window.clip_widgets['a']['label']
+            self.assertEqual(label.itemcget(rect, 'fill'), LABEL_COLORS['Light Green'])
+            self.assertEqual(label.itemcget(text, 'text'), 'Test')
             window.listbox.column('name', width=300)
             root.update()
             window.position_clip_widgets()
             root.update()
-            self.assertEqual(frame.winfo_x(), window.listbox.bbox('a', 'volume')[0])
+            self.assertEqual(volume.winfo_x(), window.listbox.bbox('a', 'volume')[0])
             self.assertEqual(label.winfo_x(), window.listbox.bbox('a', 'label')[0])
-            scale.set(-100)
+            event = SimpleNamespace(widget=volume, x=10, y=9)
+            window.canvas_volume_press(event)
+            window.canvas_volume_release(event)
             root.update()
             self.assertEqual(window.clip_setting("a")["volume"], -100)
-            scale.set(100)
+            event.x = window.clip_canvas_widths['volume'] - 52
+            window.canvas_volume_press(event)
+            window.canvas_volume_release(event)
             root.update()
             self.assertEqual(window.clip_setting("a")["volume"], 100)
         finally:
@@ -90,7 +93,8 @@ class ClipSettingsTests(unittest.TestCase):
             w.preload_clip_widgets()
             original = dict(w.clip_widgets)
             self.assertEqual(len(original), 100)
-            self.assertEqual(original['99'][1].cget('background'), '#bde8b3')
+            self.assertEqual(w.clip_canvases['label'].itemcget(original['99']['label'][0], 'fill'), '#bde8b3')
+            item_ids = {c: canvas.find_all() for c, canvas in w.clip_canvases.items()}
             with patch('relay_agent.main.ttk.Frame', side_effect=AssertionError("Scroll created a frame")), \
                  patch('relay_agent.main.tk.Menubutton', side_effect=AssertionError("Scroll created a label")):
                 for fraction in (0, .5, 1, 0):
@@ -98,8 +102,14 @@ class ClipSettingsTests(unittest.TestCase):
                     w.position_clip_widgets()
                     root.update()
                     self.assertEqual(w.clip_widgets, original)
-            self.assertTrue(original['0'][0].winfo_ismapped())
-            self.assertFalse(original['99'][0].winfo_ismapped())
+            self.assertEqual({c: canvas.find_all() for c, canvas in w.clip_canvases.items()}, item_ids)
+            self.assertEqual(len(w.listbox.winfo_children()), 2)
+            # Canvas row hit testing follows the Treeview scroll position.
+            w.listbox.yview_moveto(.5)
+            w.position_clip_widgets()
+            first = next(w.listbox.identify_row(y) for y in range(w.listbox.winfo_height()) if w.listbox.identify_row(y))
+            event = SimpleNamespace(widget=w.clip_canvases['label'], y=9)
+            self.assertEqual(w.canvas_clip_key(event), first)
         finally:
             root.destroy()
 

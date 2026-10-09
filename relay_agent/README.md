@@ -188,3 +188,5 @@ Soundboard rows are 18 pixels tall (half the previous height). Refresh files, St
 Soundboard columns keep their widths when the window expands or the last column shrinks, leaving unused space on the right. Opening a label dropdown highlights that clip row; the selection stays after applying a label.
 
 Clip audio normalization is prepared in the background when the library loads at startup or refresh. Unchanged files reuse saved measurements. Soundboard sliders, label menus, and colors are preloaded for all clips and retained while scrolling.
+
+Soundboard volume sliders and colored labels use two canvas surfaces instead of a native Windows control for every row. Their preloaded graphics scroll together with the table, avoiding per-control repaint trails.

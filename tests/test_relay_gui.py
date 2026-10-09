@@ -137,13 +137,13 @@ class HeaderDragTests(unittest.TestCase):
             window.clip_origins = {'clip':'Shared'}
             window.render_clips(); root.update()
             self.assertGreater(window.tab_buttons[1].winfo_height(), window.tab_buttons[0].winfo_height())
-            self.assertFalse(root.tk.getboolean(window.clip_widgets['clip'][1].cget('indicatoron')))
+            self.assertEqual(len(window.clip_canvases), 2)
             window.listbox.column('label', width=100)
             root.update()
             total_width = sum(window.listbox.column(c, 'width') for c in window.column_order)
             self.assertLess(total_width, window.listbox.winfo_width() - 10)
             self.assertEqual(window.listbox.identify_column(total_width + 8), '')
-            label_menu = window.clip_widgets['clip'][1].nametowidget(window.clip_widgets['clip'][1]['menu'])
+            label_menu = window.clip_widgets['clip']['menu']
             root.tk.call(label_menu['postcommand'])
             self.assertEqual(window.listbox.selection(), ('clip',))
             self.assertFalse(any(call.args[0].get('type') == 'local_play' for call in window.send.call_args_list))
@@ -158,7 +158,7 @@ class HeaderDragTests(unittest.TestCase):
             window.play_selected(SimpleNamespace(widget=window.listbox,x=box[0]+box[2]//2,y=5))
             root.update()
             self.assertEqual(window.column_order, ['name','shared','volume','label'])
-            frame, label = window.clip_widgets['clip']
+            frame, label = window.clip_canvases['volume'], window.clip_canvases['label']
             self.assertEqual(frame.winfo_x(), window.listbox.bbox('clip','volume')[0])
             self.assertEqual(label.winfo_x(), window.listbox.bbox('clip','label')[0])
             window.notebook.select(0); root.update()

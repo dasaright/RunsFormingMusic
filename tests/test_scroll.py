@@ -15,9 +15,9 @@ class ScrollTests(unittest.TestCase):
     def test_fractional_wheel_deltas_accumulate_and_one_row_per_frame(self):
         w = self.window()
         for _ in range(3):
-            w.smooth_scroll(SimpleNamespace(delta=-30), w.listbox)
+            w.smooth_scroll(SimpleNamespace(delta=-10), w.listbox)
         w.listbox.yview_scroll.assert_not_called()
-        w.smooth_scroll(SimpleNamespace(delta=-30), w.listbox)
+        w.smooth_scroll(SimpleNamespace(delta=-10), w.listbox)
         w.listbox.yview_scroll.assert_called_once_with(1, 'units')
         w.smooth_scroll(SimpleNamespace(delta=-480), w.listbox)
         self.assertEqual(w.listbox.yview_scroll.call_count, 2)
