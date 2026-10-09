@@ -1,4 +1,5 @@
 import asyncio
+import math
 from array import array
 import json
 import re
@@ -109,6 +110,7 @@ def style_relay(root):
     style.configure("TNotebook.Tab", padding=(26, 12), font=("Segoe UI", 11, "bold"), background="#e7e9ed", borderwidth=0)
     style.map("TNotebook.Tab", background=[("selected", "#ffffff")], foreground=[("selected", "#20252b"), ("!selected", "#7c838e")])
     style.configure("Treeview", background="#ffffff", fieldbackground="#ffffff", foreground="#303640", rowheight=36, borderwidth=0)
+    style.configure("Soundboard.Treeview", rowheight=18, font=("Segoe UI", 9))
     style.configure("Treeview.Heading", background="#172c4a", foreground="#ffffff", font=("Segoe UI", 10, "bold"), padding=(12, 12), relief="flat")
     style.map("Treeview.Heading", background=[("active", "#233e60")], foreground=[("active", "#ffffff")])
     style.map("Treeview", background=[("selected", "#e8edf5")], foreground=[("selected", "#20252b")])
@@ -147,6 +149,21 @@ def copy_clip_to_shared(source, folder):
         target.unlink(missing_ok=True)
         raise
     return target
+
+
+NORMALIZATION_VERSION = 1
+
+
+def clip_normalization_gain(report):
+    mean = re.search(r"mean_volume:\s*(-?\d+(?:\.\d+)?|-inf)\s*dB", report)
+    peak = re.search(r"max_volume:\s*(-?\d+(?:\.\d+)?|-inf)\s*dB", report)
+    if not mean or not peak:
+        raise ValueError("Could not measure soundboard clip loudness.")
+    mean, peak = float(mean[1]), float(peak[1])
+    if not math.isfinite(mean) or not math.isfinite(peak) or peak <= -90:
+        return 0.0
+    # Average loudness target with 7 dB of peak headroom. User gain runs later.
+    return round(min(-20.0 - mean, -7.0 - peak, 24.0), 3)
 
 
 def clipboard_youtube_link(text):
@@ -282,6 +299,7 @@ class RelayAgent:
         self.stream_task = None
         self.stream_request_id = None
         self.local_files = {}
+        self.normalization_cache = dict(config.get("clip_normalization", {}))
         self.clip_tasks = {}
         self.clip_file_ids = {}
         self.playback_gate = asyncio.Event()
@@ -380,6 +398,28 @@ class RelayAgent:
                     stderr=asyncio.subprocess.PIPE,
                     creationflags=(subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0),
                 )
+            normalization_args = []
+            if local_path is not None:
+                stat = local_path.stat()
+                key = str(local_path.resolve())
+                fingerprint = [stat.st_mtime_ns, stat.st_size, NORMALIZATION_VERSION]
+                cached = self.normalization_cache.get(key)
+                if cached and cached.get("fingerprint") == fingerprint:
+                    gain_db = cached["gain_db"]
+                else:
+                    ffmpeg = await asyncio.create_subprocess_exec(
+                        str(FFMPEG_PATH), "-hide_banner", "-i", str(local_path),
+                        "-vn", "-sn", "-dn", "-af", "volumedetect", "-f", "null", "-",
+                        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
+                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+                    _, report = await asyncio.wait_for(ffmpeg.communicate(), timeout=60)
+                    if ffmpeg.returncode:
+                        raise ValueError("Could not analyze this clip for normalization.")
+                    gain_db = clip_normalization_gain(report.decode(errors="replace"))
+                    self.normalization_cache = {**self.normalization_cache,
+                                                key: {"fingerprint": fingerprint, "gain_db": gain_db}}
+                    self.events.put({"normalization_cache": self.normalization_cache})
+                normalization_args = ["-af", f"volume={gain_db}dB"]
             ffmpeg = await asyncio.create_subprocess_exec(
                 str(FFMPEG_PATH),
                 "-hide_banner",
@@ -388,6 +428,7 @@ class RelayAgent:
                 "-i",
                 str(local_path) if local_path is not None else "pipe:0",
                 "-vn",
+                *normalization_args,
                 "-f",
                 "s16le",
                 "-ar",
@@ -726,7 +767,7 @@ class RelayWindow:
         self.file_ids = []
         root.title("Runsforming Audio Relay")
         root.geometry("1060x740")
-        root.minsize(820, 570)
+        root.minsize(1040, 570)
         style_relay(root)
         self.status = tk.StringVar(value="Connecting…")
         self.folder = tk.StringVar(value=config.get("mp3_folder", ""))
@@ -741,13 +782,18 @@ class RelayWindow:
                                 command=lambda i=index: self.notebook.select(i))
             button.pack(side="left", anchor="s", padx=(0, 6))
             self.tab_buttons.append(button)
-        actions = [("Refresh files", self.refresh_files), ("Stop all clips", self.stop),
-                   ("Sync clips", self.sync_shared), ("Change folder", self.choose_folder)]
         self.toolbar_buttons = []
-        for text, command in reversed(actions):
-            button = ttk.Button(top_bar, text=text, command=command)
-            button.pack(side="right", anchor="s", padx=(6, 0))
-            self.toolbar_buttons.append(button)
+        button = ttk.Button(top_bar, text="Change folder", command=self.choose_folder)
+        button.pack(side="right", anchor="s", padx=(6, 0))
+        self.toolbar_buttons.append(button)
+        self.install_button = ttk.Button(top_bar, text="Install update now", command=self.install_update_now, state="disabled")
+        self.install_button.pack(side="right", anchor="s", padx=(6, 0))
+        self.update_button = ttk.Button(top_bar, text="Check for updates", command=lambda: self.check_updates(manual=True))
+        self.update_button.pack(side="right", anchor="s", padx=(6, 0))
+        self.auto_update = tk.BooleanVar(value=bool(config.get("auto_update", True)))
+        self.auto_update_checkbox = ttk.Checkbutton(top_bar, text="Update automatically", variable=self.auto_update,
+                                                    command=self.toggle_auto_update)
+        self.auto_update_checkbox.pack(side="right", anchor="s", padx=(6, 0))
         left, right = ttk.Frame(self.notebook, padding=20), ttk.Frame(self.notebook, padding=20)
         self.notebook.add(left, text="YouTube Music")
         self.notebook.add(right, text="Soundboard")
@@ -789,7 +835,7 @@ class RelayWindow:
         self.sort_column = "name"
         self.sort_reverse = False
         self.clip_origins = {}
-        self.listbox = ttk.Treeview(right, columns=("name", "volume", "shared", "label"), show="headings", selectmode="browse")
+        self.listbox = ttk.Treeview(right, columns=("name", "volume", "shared", "label"), show="headings", selectmode="browse", style="Soundboard.Treeview")
         self.listbox.heading("name", text="Name")
         self.listbox.heading("shared", text="Shared")
         self.listbox.column("name", width=400, minwidth=120)
@@ -831,14 +877,11 @@ class RelayWindow:
         self.register_drop_targets(root)
         update_bar = ttk.Frame(root)
         update_bar.pack(fill="x", padx=16, pady=4)
-        self.auto_update = tk.BooleanVar(value=bool(config.get("auto_update", True)))
-        ttk.Checkbutton(update_bar, text="Update automatically", variable=self.auto_update,
-                        command=self.toggle_auto_update).pack(side="left")
-        self.update_button = ttk.Button(update_bar, text="Check for updates",
-                                       command=lambda: self.check_updates(manual=True))
-        self.update_button.pack(side="left", padx=8)
-        self.install_button = ttk.Button(update_bar, text="Install update now", command=self.install_update_now, state="disabled")
-        self.install_button.pack(side="left")
+        self.clip_action_buttons = []
+        for text, command in (("Refresh files", self.refresh_files), ("Stop all clips", self.stop), ("Sync clips", self.sync_shared)):
+            button = ttk.Button(update_bar, text=text, command=command)
+            button.pack(side="left", padx=(0, 8))
+            self.clip_action_buttons.append(button)
         ttk.Label(update_bar, text=f"RunsFormingMusic v1.{RELAY_BUILD}", style="Muted.TLabel").pack(side="right")
         ttk.Label(update_bar, textvariable=self.identity, style="Muted.TLabel").pack(side="right", padx=18)
         self.update_check_running = False
@@ -1083,7 +1126,7 @@ class RelayWindow:
                 scale.set(self.clip_setting(key).get("volume", 0))
                 scale.pack(side="left", fill="x", expand=True)
                 label = tk.Menubutton(self.listbox, relief="flat", anchor="w", indicatoron=False, borderwidth=0,
-                                      highlightthickness=0, padx=10, font=("Segoe UI", 10))
+                                      highlightthickness=0, padx=10, font=("Segoe UI", 9))
                 menu = themed_menu(label)
                 label.configure(menu=menu)
                 self.clip_widgets[key] = (frame, label)
@@ -1331,6 +1374,9 @@ class RelayWindow:
     def poll(self):
         while not self.agent.events.empty():
             event = self.agent.events.get_nowait()
+            if "normalization_cache" in event:
+                self.config["clip_normalization"] = event["normalization_cache"]
+                self.save()
             if event.get("share_done"):
                 self.editing_clips.discard(event["share_done"])
                 if event.get("share_error"):

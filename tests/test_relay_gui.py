@@ -138,6 +138,10 @@ class HeaderDragTests(unittest.TestCase):
             self.assertGreater(window.tab_buttons[1].winfo_height(), window.tab_buttons[0].winfo_height())
             self.assertFalse(root.tk.getboolean(window.clip_widgets['clip'][1].cget('indicatoron')))
             self.assertEqual(window.toolbar_buttons[0].master, window.tab_buttons[0].master)
+            self.assertEqual(window.update_button.master, window.tab_buttons[0].master)
+            self.assertNotEqual(window.clip_action_buttons[0].master, window.tab_buttons[0].master)
+            from tkinter import ttk
+            self.assertEqual(int(ttk.Style(root).lookup('Soundboard.Treeview', 'rowheight')), 18)
             window.header_drag = {'column':'volume','x':100,'moved':True}
             # Drop on the Shared header using its actual on-screen coordinate.
             box = window.listbox.bbox('clip','shared')
