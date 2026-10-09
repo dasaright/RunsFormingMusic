@@ -838,6 +838,7 @@ class RelayWindow:
         self.listbox = ttk.Treeview(right, columns=("name", "volume", "shared", "label"), show="headings", selectmode="browse", style="Soundboard.Treeview")
         self.listbox.heading("name", text="Name")
         self.listbox.heading("shared", text="Shared")
+        # Fixed widths leave unused space on the right after resizing columns.
         self.listbox.column("name", width=400, minwidth=120, stretch=False)
         self.listbox.heading("volume", text="Volume")
         self.listbox.column("volume", width=150, minwidth=150, stretch=False)
