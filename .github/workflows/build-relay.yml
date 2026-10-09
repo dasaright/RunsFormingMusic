@@ -125,6 +125,8 @@ jobs:
             Get-Content "$fixture/Files/update-status.txt" -ErrorAction SilentlyContinue
             throw "Frozen executable did not install and restart"
           }
+          Get-Content "$fixture/Files/update*.log" -ErrorAction SilentlyContinue
+          Get-Content "$fixture/Files/update-status.txt" -ErrorAction SilentlyContinue
           if ((Get-Content "$fixture/README.md").Trim() -ne "updated README") { throw "Update did not copy payload" }
           if ((Get-Content "$fixture/relay-config.json").Trim() -ne "preserve config") { throw "Config was altered" }
           if ((Get-Content "$fixture/sharedclips/clip.ogg").Trim() -ne "preserve clip") { throw "Clips were altered" }
