@@ -173,3 +173,7 @@ Shared displays ☑ for shared clips and ☐ for local clips. Name, Shared, and 
 YouTube Music and Soundboard have separate tabs with full-width lists. There is no Discord destination picker: your personal token resolves the voice channel you are in for playback and controls, including when you move channels. Join voice, then click a clip or paste a YouTube link; the bot joins automatically for playback.
 
 Drag a soundboard column header onto another header to move it to that position. Column order is saved locally; sorting is separate from dragging, and only the Name column plays clips regardless of position. Volume and label controls track their columns after reorder or resizing.
+
+Right-click a local clip and choose **Share** to copy it into sharedclips and sync while keeping the local copy. **Share then del local** copies first, removes the local copy after FFmpeg releases it, then syncs. Conflicting filenames are never overwritten; both files are preserved on copy errors. Volume and label settings carry to the shared copy. Sync failures leave the shared copy on your PC for retry.
+
+The selected tab is taller than the inactive tab. Soundboard actions sit beside the tabs in the top toolbar; column headers are navy, and label dropdowns have no raised indicator.

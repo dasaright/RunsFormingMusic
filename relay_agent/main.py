@@ -102,16 +102,51 @@ def style_relay(root):
     style.map("TButton", background=[("active", "#e5e8ed")], foreground=[("disabled", "#a5abb5")])
     style.configure("Primary.TButton", background="#24272c", foreground="#ffffff")
     style.map("Primary.TButton", background=[("active", "#414650")], foreground=[("disabled", "#969ba4")])
-    style.configure("TNotebook", background="#f1f2f4", borderwidth=0, tabmargins=(0, 0, 0, 12))
+    style.configure("TNotebook", background="#f1f2f4", borderwidth=0, tabmargins=0)
+    style.layout("TNotebook.Tab", [])
+    style.configure("SelectedTab.TButton", background="#ffffff", foreground="#172c4a", font=("Segoe UI", 11, "bold"), padding=(20, 15))
+    style.configure("OtherTab.TButton", background="#e7e9ed", foreground="#7c838e", font=("Segoe UI", 10), padding=(16, 8))
     style.configure("TNotebook.Tab", padding=(26, 12), font=("Segoe UI", 11, "bold"), background="#e7e9ed", borderwidth=0)
     style.map("TNotebook.Tab", background=[("selected", "#ffffff")], foreground=[("selected", "#20252b"), ("!selected", "#7c838e")])
     style.configure("Treeview", background="#ffffff", fieldbackground="#ffffff", foreground="#303640", rowheight=36, borderwidth=0)
-    style.configure("Treeview.Heading", background="#f7f8fa", foreground="#7c838e", font=("Segoe UI", 10, "bold"), padding=(12, 12), relief="flat")
+    style.configure("Treeview.Heading", background="#172c4a", foreground="#ffffff", font=("Segoe UI", 10, "bold"), padding=(12, 12), relief="flat")
+    style.map("Treeview.Heading", background=[("active", "#233e60")], foreground=[("active", "#ffffff")])
     style.map("Treeview", background=[("selected", "#e8edf5")], foreground=[("selected", "#20252b")])
     style.configure("Clip.TFrame", background="#ffffff")
     style.configure("Clip.TLabel", background="#ffffff", foreground="#7c838e", font=("Segoe UI", 9))
     style.configure("TCheckbutton", background="#f1f2f4", padding=6)
     style.configure("Horizontal.TScale", background="#ffffff", troughcolor="#e7e9ed", borderwidth=0)
+
+
+def themed_menu(parent):
+    return tk.Menu(parent, tearoff=False, background="#ffffff", foreground="#303640",
+                   activebackground="#e8edf5", activeforeground="#172c4a",
+                   relief="flat", borderwidth=0, font=("Segoe UI", 10))
+
+
+def copy_clip_to_shared(source, folder):
+    source, folder = Path(source), Path(folder)
+    if not source.is_file() or source.suffix.lower() not in AUDIO_EXTENSIONS:
+        raise ValueError("Select an available audio file.")
+    if not 0 < source.stat().st_size <= 20 * 1024 * 1024:
+        raise ValueError("Shared clips must be between 1 byte and 20 MB.")
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / source.name
+    if source.resolve() == target.resolve():
+        raise ValueError("This clip is already in the shared folder.")
+    if target.exists():
+        if source.read_bytes() != target.read_bytes():
+            raise ValueError("A different shared clip already uses this filename. Rename before sharing.")
+        return target
+    try:
+        with target.open("xb") as output, source.open("rb") as input_file:
+            shutil.copyfileobj(input_file, output)
+    except FileExistsError:
+        raise ValueError("This shared filename was created during copying. Retry or rename.") from None
+    except Exception:
+        target.unlink(missing_ok=True)
+        raise
+    return target
 
 
 def clipboard_youtube_link(text):
@@ -462,6 +497,12 @@ class RelayAgent:
                 self.stream_task = None
                 self.stream_request_id = None
 
+    async def share_clip_file(self, file_id, path, folder, remove_local=False):
+        target = await asyncio.to_thread(copy_clip_to_shared, path, folder)
+        if remove_local:
+            await self.edit_clip_file(file_id, path)
+        return target
+
     async def edit_clip_file(self, file_id, path, new_name=None):
         for attempt in range(30):
             tasks = [task for request_id, task in list(self.clip_tasks.items())
@@ -689,17 +730,28 @@ class RelayWindow:
         style_relay(root)
         self.status = tk.StringVar(value="Connecting…")
         self.folder = tk.StringVar(value=config.get("mp3_folder", ""))
-        header = ttk.Frame(root)
-        header.pack(fill="x", padx=28, pady=(24, 20))
-        ttk.Label(header, text="RunsForming Music", style="Title.TLabel").pack(side="left")
+        top_bar = ttk.Frame(root)
+        top_bar.pack(fill="x", padx=28, pady=(18, 8))
         self.identity = tk.StringVar(value="Connecting your relay")
-        ttk.Label(header, textvariable=self.identity, style="Muted.TLabel").pack(side="right")
         self.notebook = ttk.Notebook(root)
         self.notebook.pack(fill="both", expand=True, padx=28)
+        self.tab_buttons = []
+        for index, text in enumerate(("YouTube Music", "Soundboard")):
+            button = ttk.Button(top_bar, text=text, style="SelectedTab.TButton" if index == 0 else "OtherTab.TButton",
+                                command=lambda i=index: self.notebook.select(i))
+            button.pack(side="left", anchor="s", padx=(0, 6))
+            self.tab_buttons.append(button)
+        actions = [("Refresh files", self.refresh_files), ("Stop all clips", self.stop),
+                   ("Sync clips", self.sync_shared), ("Change folder", self.choose_folder)]
+        self.toolbar_buttons = []
+        for text, command in reversed(actions):
+            button = ttk.Button(top_bar, text=text, command=command)
+            button.pack(side="right", anchor="s", padx=(6, 0))
+            self.toolbar_buttons.append(button)
         left, right = ttk.Frame(self.notebook, padding=20), ttk.Frame(self.notebook, padding=20)
         self.notebook.add(left, text="YouTube Music")
         self.notebook.add(right, text="Soundboard")
-        self.notebook.bind("<<NotebookTabChanged>>", lambda event: self.root.after_idle(self.position_clip_widgets))
+        self.notebook.bind("<<NotebookTabChanged>>", self.update_tabs)
         now_card = ttk.Frame(left, style="Card.TFrame", padding=22)
         now_card.pack(fill="x", pady=(0, 16))
         ttk.Label(now_card, text="NOW PLAYING", style="CardMuted.TLabel").pack(anchor="w")
@@ -730,17 +782,8 @@ class RelayWindow:
         self.queue_view.pack(fill="both", expand=True, padx=(0, 12))
         root.bind("<Control-v>", self.paste_youtube_link)
         root.bind("<Control-V>", self.paste_youtube_link)
-        ttk.Label(right, text="Your soundboard", font=("Segoe UI", 17, "bold")).pack(anchor="w")
-        ttk.Label(right, text="Click a filename to play • Right-click to manage • Drag headers to arrange columns", style="Muted.TLabel").pack(anchor="w", pady=(4, 12))
-        buttons = ttk.Frame(right)
-        buttons.pack(fill="x", pady=8)
-        ttk.Button(buttons, text="Refresh files", command=self.refresh_files).pack(side="left", padx=8)
-        ttk.Button(buttons, text="Stop all clips", command=self.stop).pack(side="left")
-        folder_bar = ttk.Frame(right)
-        folder_bar.pack(fill="x", pady=8)
-        ttk.Button(folder_bar, text="Change folder", command=self.choose_folder).pack(side="right", padx=(8, 0))
-        ttk.Label(folder_bar, textvariable=self.folder, wraplength=720, style="Muted.TLabel").pack(side="left", fill="x", expand=True)
-        ttk.Button(buttons, text="Sync clips", command=self.sync_shared).pack(side="left", padx=8)
+        ttk.Label(right, text="Click a filename to play • Right-click to manage • Drag headers to arrange columns", style="Muted.TLabel").pack(anchor="w", pady=(0, 10))
+        ttk.Label(right, textvariable=self.folder, wraplength=900, style="Muted.TLabel").pack(anchor="w", pady=(0, 14))
         self.sync_running = False
         self.sort_keys = [("name", False)]
         self.sort_column = "name"
@@ -769,11 +812,15 @@ class RelayWindow:
         self.listbox.bind("<ButtonRelease-1>", self.play_selected)
         self.listbox.bind("<B1-Motion>", self.clip_mouse_move, add="+")
         self.listbox.bind("<ButtonRelease-1>", lambda event: self.root.after_idle(self.position_clip_widgets), add="+")
-        self.clip_menu = tk.Menu(root, tearoff=False)
+        self.clip_menu = themed_menu(root)
+        self.clip_menu.add_command(label="Share", command=lambda: self.share_clip(False))
+        self.clip_menu.add_command(label="Share then del local", command=lambda: self.share_clip(True))
+        self.clip_menu.add_separator()
         self.clip_menu.add_command(label="Rename", command=self.rename_clip)
         self.clip_menu.add_command(label="Delete", command=self.delete_clip)
+        self.clip_menu.add_separator()
         self.clip_menu.add_command(label="Add Label", command=self.add_label)
-        color_menu = tk.Menu(self.clip_menu, tearoff=False)
+        color_menu = themed_menu(self.clip_menu)
         for name, color in LABEL_COLORS.items():
             color_menu.add_command(label=name, foreground=color, command=lambda n=name: self.change_label_color(n))
         self.clip_menu.add_cascade(label="Change Label Color", menu=color_menu)
@@ -792,7 +839,8 @@ class RelayWindow:
         self.update_button.pack(side="left", padx=8)
         self.install_button = ttk.Button(update_bar, text="Install update now", command=self.install_update_now, state="disabled")
         self.install_button.pack(side="left")
-        ttk.Label(update_bar, text=f"RunsFormingMusic v1.{RELAY_BUILD}").pack(side="right")
+        ttk.Label(update_bar, text=f"RunsFormingMusic v1.{RELAY_BUILD}", style="Muted.TLabel").pack(side="right")
+        ttk.Label(update_bar, textvariable=self.identity, style="Muted.TLabel").pack(side="right", padx=18)
         self.update_check_running = False
         self.pending_update = None
         status_file = FILES_DIR / "update-status.txt"
@@ -807,6 +855,12 @@ class RelayWindow:
         threading.Thread(target=self.run_agent, daemon=True).start()
         root.after(100, self.poll)
         root.protocol("WM_DELETE_WINDOW", self.close)
+
+    def update_tabs(self, event=None):
+        selected = self.notebook.index(self.notebook.select())
+        for index, button in enumerate(self.tab_buttons):
+            button.configure(style="SelectedTab.TButton" if index == selected else "OtherTab.TButton")
+        self.root.after_idle(self.position_clip_widgets)
 
     def toggle_auto_update(self):
         self.config["auto_update"] = self.auto_update.get()
@@ -1028,8 +1082,9 @@ class RelayWindow:
                                   command=lambda value, k=key, t=text: self.set_clip_volume(k, value, t))
                 scale.set(self.clip_setting(key).get("volume", 0))
                 scale.pack(side="left", fill="x", expand=True)
-                label = tk.Menubutton(self.listbox, relief="flat", anchor="w", indicatoron=True)
-                menu = tk.Menu(label, tearoff=False)
+                label = tk.Menubutton(self.listbox, relief="flat", anchor="w", indicatoron=False, borderwidth=0,
+                                      highlightthickness=0, padx=10, font=("Segoe UI", 10))
+                menu = themed_menu(label)
                 label.configure(menu=menu)
                 self.clip_widgets[key] = (frame, label)
             frame, label = self.clip_widgets[key]
@@ -1070,6 +1125,9 @@ class RelayWindow:
         self.context_clip_id = file_id
         self.clip_pressed_index = None
         self.listbox.selection_set(file_id)
+        can_share = self.clip_origins.get(file_id) == "Local" and not self.sync_running and file_id not in getattr(self, "editing_clips", set())
+        for action in ("Share", "Share then del local"):
+            self.clip_menu.entryconfigure(action, state="normal" if can_share else "disabled")
         has_label = bool(self.clip_setting(file_id).get("label"))
         self.clip_menu.entryconfigure("Change Label Color", state="normal" if has_label else "disabled")
         try:
@@ -1130,6 +1188,30 @@ class RelayWindow:
             self.status.set("Wait for shared clip sync to finish before editing shared files.")
             return None
         return path
+
+    def share_clip(self, remove_local=False):
+        file_id = self.context_clip_id
+        path = self.editable_clip()
+        if path is None or self.clip_origins.get(file_id) != "Local":
+            return
+        if self.sync_running or getattr(self, "editing_clips", set()):
+            self.status.set("Wait for the current clip operation to finish.")
+            return
+        if not hasattr(self, "editing_clips"):
+            self.editing_clips = set()
+        self.editing_clips.add(file_id)
+        settings = dict(self.clip_setting(file_id))
+        self.status.set("Copying clip to shared folder…")
+        future = asyncio.run_coroutine_threadsafe(
+            self.agent.share_clip_file(file_id, path, SHARED_CLIPS_DIR, remove_local), self.loop)
+        def done(result):
+            try:
+                target = result.result()
+                self.agent.events.put({"share_done": file_id, "shared_path": str(target),
+                                       "share_settings": settings})
+            except Exception as exc:
+                self.agent.events.put({"share_done": file_id, "share_error": str(exc)})
+        future.add_done_callback(done)
 
     def rename_clip(self):
         path = self.editable_clip()
@@ -1247,6 +1329,17 @@ class RelayWindow:
     def poll(self):
         while not self.agent.events.empty():
             event = self.agent.events.get_nowait()
+            if event.get("share_done"):
+                self.editing_clips.discard(event["share_done"])
+                if event.get("share_error"):
+                    messagebox.showerror("Could not share clip", event["share_error"], parent=self.root)
+                    self.refresh_files()
+                else:
+                    key = hashlib.sha256(str(Path(event["shared_path"]).resolve()).encode()).hexdigest()
+                    self.config.setdefault("clip_settings", {})[key] = event["share_settings"]
+                    self.save()
+                    self.refresh_files()
+                    self.sync_shared()
             if event.get("clip_edit_done"):
                 self.editing_clips.discard(event["clip_edit_done"])
                 if event.get("renamed_path"):

@@ -130,10 +130,14 @@ class HeaderDragTests(unittest.TestCase):
             root.update()
             self.assertEqual(len(window.notebook.tabs()), 2)
             self.assertFalse(hasattr(window, 'destination'))
+            self.assertGreater(window.tab_buttons[0].winfo_height(), window.tab_buttons[1].winfo_height())
             window.notebook.select(1)
             window.agent.local_files = {'clip':Path('Test.mp3')}
             window.clip_origins = {'clip':'Shared'}
             window.render_clips(); root.update()
+            self.assertGreater(window.tab_buttons[1].winfo_height(), window.tab_buttons[0].winfo_height())
+            self.assertFalse(root.tk.getboolean(window.clip_widgets['clip'][1].cget('indicatoron')))
+            self.assertEqual(window.toolbar_buttons[0].master, window.tab_buttons[0].master)
             window.header_drag = {'column':'volume','x':100,'moved':True}
             # Drop on the Shared header using its actual on-screen coordinate.
             box = window.listbox.bbox('clip','shared')

@@ -61,3 +61,31 @@ class ActiveClipEditTests(unittest.IsolatedAsyncioTestCase):
                 finally:
                     task.cancel(); other.cancel()
                     await asyncio.gather(task,other,return_exceptions=True)
+
+
+class ShareClipTests(unittest.IsolatedAsyncioTestCase):
+    async def test_share_keeps_local_and_share_then_delete_preserves_shared_bytes(self):
+        from relay_agent.main import RelayAgent
+        with tempfile.TemporaryDirectory() as directory:
+            local = Path(directory)/'local'; local.mkdir()
+            shared = Path(directory)/'shared'
+            source = local/'clip.ogg'; source.write_bytes(b'audio')
+            agent = RelayAgent({})
+            target = await agent.share_clip_file('clip', source, shared)
+            self.assertTrue(source.exists())
+            self.assertEqual(target.read_bytes(), b'audio')
+            target = await agent.share_clip_file('clip', source, shared, remove_local=True)
+            self.assertFalse(source.exists())
+            self.assertEqual(target.read_bytes(), b'audio')
+
+    async def test_conflict_preserves_both_files_even_when_delete_selected(self):
+        from relay_agent.main import RelayAgent
+        with tempfile.TemporaryDirectory() as directory:
+            local = Path(directory)/'local'; local.mkdir()
+            shared = Path(directory)/'shared'; shared.mkdir()
+            source = local/'clip.mp3'; source.write_bytes(b'local')
+            (shared/'clip.mp3').write_bytes(b'other')
+            with self.assertRaises(ValueError):
+                await RelayAgent({}).share_clip_file('clip', source, shared, remove_local=True)
+            self.assertEqual(source.read_bytes(), b'local')
+            self.assertEqual((shared/'clip.mp3').read_bytes(), b'other')
