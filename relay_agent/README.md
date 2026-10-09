@@ -177,3 +177,5 @@ Drag a soundboard column header onto another header to move it to that position.
 Right-click a local clip and choose **Share** to copy it into sharedclips and sync while keeping the local copy. **Share then del local** copies first, removes the local copy after FFmpeg releases it, then syncs. Conflicting filenames are never overwritten; both files are preserved on copy errors. Volume and label settings carry to the shared copy. Sync failures leave the shared copy on your PC for retry.
 
 The selected tab is taller than the inactive tab. Soundboard actions sit beside the tabs in the top toolbar; column headers are navy, and label dropdowns have no raised indicator.
+
+Sharing first checks GitHub for retired filenames and conflicting content, requiring a working relay connection. If either check fails, the local file is kept.

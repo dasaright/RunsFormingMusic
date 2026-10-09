@@ -61,3 +61,17 @@ class SyncTests(unittest.TestCase):
             self.assertFalse((folder/'old.mp3').exists())
             self.assertTrue((folder/'changed.mp3').exists())
             self.assertEqual(len([r for r in requests if r.method == 'PUT']), 1)
+
+    def test_explicit_share_rejects_retired_names_and_remote_conflicts_before_local_changes(self):
+        from relay_agent.shared_clips import check_share_target
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/'clip.mp3'; path.write_bytes(b'clip')
+            config = {'server_url':'wss://example.com/relay','relay_token':'test'}
+            listings = [{'files':[], 'changes':{'clip.mp3':[{'sha':blob_sha(b'clip'), 'new_name':None}]}},
+                        {'files':[{'name':'clip.mp3','sha':'different'}]}]
+            for listing in listings:
+                with patch('relay_agent.shared_clips.urlopen',return_value=Response(json.dumps(listing).encode())), self.assertRaises(ValueError):
+                    check_share_target(config, path)
+                self.assertEqual(path.read_bytes(), b'clip')
+            with patch('relay_agent.shared_clips.urlopen',return_value=Response(b'{"files":[]}')):
+                check_share_target(config, path)

@@ -14,6 +14,25 @@ def blob_sha(data):
     return hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
 
 
+def check_share_target(config, path):
+    server = urlsplit(config['server_url'])
+    if server.scheme not in ('wss', 'https'):
+        raise ValueError('Sharing requires a secure relay URL.')
+    path = Path(path)
+    if not 0 < path.stat().st_size <= MAX_CLIP_BYTES:
+        raise ValueError('Shared clips must be between 1 byte and 20 MB.')
+    req = Request('https://' + server.netloc + '/sharedclips',
+                  headers={'Authorization': 'Bearer ' + config['relay_token']})
+    with urlopen(req, timeout=90, context=ssl.create_default_context(cafile=certifi.where())) as response:
+        listing = json.loads(response.read(MAX_CLIP_BYTES))
+    sha = blob_sha(path.read_bytes())
+    if any(change['sha'] == sha for change in listing.get('changes', {}).get(path.name, [])):
+        raise ValueError('This shared filename was retired by the owner. Rename the local clip before sharing.')
+    remote = next((item for item in listing['files'] if item['name'] == path.name), None)
+    if remote and remote['sha'] != sha:
+        raise ValueError('A different GitHub clip already has this name. Rename the local clip before sharing.')
+
+
 def edit_shared_clip(config, path, new_name=None):
     server = urlsplit(config['server_url'])
     if server.scheme not in ('wss', 'https'):

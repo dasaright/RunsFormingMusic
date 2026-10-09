@@ -19,10 +19,10 @@ from pathlib import Path
 import certifi
 from websockets.asyncio.client import connect
 if __package__:
-    from .shared_clips import sync_clips, edit_shared_clip
+    from .shared_clips import sync_clips, edit_shared_clip, check_share_target
     from .updater import find_update, prepare_update, launch_installer
 else:
-    from shared_clips import sync_clips, edit_shared_clip
+    from shared_clips import sync_clips, edit_shared_clip, check_share_target
     from updater import find_update, prepare_update, launch_installer
 
 
@@ -1202,8 +1202,10 @@ class RelayWindow:
         self.editing_clips.add(file_id)
         settings = dict(self.clip_setting(file_id))
         self.status.set("Copying clip to shared folder…")
-        future = asyncio.run_coroutine_threadsafe(
-            self.agent.share_clip_file(file_id, path, SHARED_CLIPS_DIR, remove_local), self.loop)
+        async def share_checked():
+            await asyncio.to_thread(check_share_target, self.config, path)
+            return await self.agent.share_clip_file(file_id, path, SHARED_CLIPS_DIR, remove_local)
+        future = asyncio.run_coroutine_threadsafe(share_checked(), self.loop)
         def done(result):
             try:
                 target = result.result()
