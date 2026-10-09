@@ -1228,6 +1228,8 @@ class RelayWindow:
         first_box = next((box for box in boxes if box), None)
         self.clip_row_height = first_box[3] if first_box else int(ttk.Style(self.root).lookup(
             self.listbox.cget("style") or "Treeview", "rowheight") or 18)
+        self.clip_body_top = first_box[1] if first_box else getattr(self, "clip_body_top", 29)
+        self.clip_body_left = first_box[0] if first_box else getattr(self, "clip_body_left", 1)
         self.clip_position_signature = None
         self.clip_row_indices = {key: i for i, key in enumerate(self.file_ids)}
         self.clip_canvas_widths = {c: self.listbox.column(c, "width") for c in self.clip_canvases}
@@ -1271,7 +1273,7 @@ class RelayWindow:
         canvas.itemconfigure(text, text=f"{value:+d}%" if value else "0%")
 
     def canvas_clip_key(self, event):
-        index = int(event.widget.canvasy(event.y) // self.clip_row_height)
+        index = int((getattr(self, "clip_scroll_offset", 0) + event.y) // self.clip_row_height)
         return self.file_ids[index] if 0 <= index < len(self.file_ids) else None
 
     def canvas_volume_press(self, event):
@@ -1321,25 +1323,24 @@ class RelayWindow:
         widths = {c: self.listbox.column(c, "width") for c in self.clip_canvases}
         if widths != self.clip_canvas_widths:
             self.preload_clip_widgets()
-        signature = (self.listbox.yview(), self.listbox.winfo_width(), self.listbox.winfo_height(),
+        signature = (self.listbox.yview(), self.listbox.winfo_width(), self.listbox.winfo_height(), self.listbox.winfo_ismapped(),
                      tuple(self.listbox.cget("displaycolumns")))
         if signature == getattr(self, "clip_position_signature", None):
             return
         self.clip_position_signature = signature
-        # Move only two canvas viewports. No per-row widget placement or painting.
-        key = next((self.listbox.identify_row(y) for y in range(0, self.listbox.winfo_height(),
-                    max(1, self.clip_row_height // 2)) if self.listbox.identify_row(y)), None)
-        if key is None:
-            for canvas in self.clip_canvases.values():
-                canvas.place_forget()
-            return
-        offset = self.clip_row_indices[key] * self.clip_row_height
+        # Treeview bbox can lag a scroll until Tk's next display pass. Use the
+        # scroll fraction and fixed column geometry so both layers move together.
+        offset = round(self.listbox.yview()[0] * len(self.file_ids)) * self.clip_row_height
+        self.clip_scroll_offset = offset
+        y = self.clip_body_top
+        x = self.clip_body_left
+        positions = {}
+        for column in self.column_order if hasattr(self, "column_order") else ("name", "volume", "shared", "label"):
+            width = self.listbox.column(column, "width")
+            positions[column] = (x, width)
+            x += width
         for column, canvas in self.clip_canvases.items():
-            box = self.listbox.bbox(key, column)
-            if not box:
-                canvas.place_forget()
-                continue
-            x, y, width, _ = box
+            x, width = positions[column]
             height = max(1, self.listbox.winfo_height() - y - 2)
             total = len(self.file_ids) * self.clip_row_height + height
             canvas.configure(scrollregion=(0, 0, width, total))

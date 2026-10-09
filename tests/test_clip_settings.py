@@ -102,6 +102,7 @@ class ClipSettingsTests(unittest.TestCase):
                     w.position_clip_widgets()
                     root.update()
                     self.assertEqual(w.clip_widgets, original)
+                    self.assertAlmostEqual(w.clip_canvases['label'].canvasy(0), w.clip_scroll_offset, delta=1)
             self.assertEqual({c: canvas.find_all() for c, canvas in w.clip_canvases.items()}, item_ids)
             self.assertEqual(len(w.listbox.winfo_children()), 2)
             # Canvas row hit testing follows the Treeview scroll position.
