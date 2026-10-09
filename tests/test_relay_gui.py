@@ -132,10 +132,24 @@ class HeaderDragTests(unittest.TestCase):
             self.assertEqual(len(window.notebook.tabs()), 2)
             self.assertFalse(hasattr(window, 'destination'))
             self.assertGreater(window.tab_buttons[0].winfo_height(), window.tab_buttons[1].winfo_height())
-            window.notebook.select(1)
+            from tkinter import ttk
+            ttk.Style(root).configure('Treeview.Heading', padding=(8, 18))
             window.agent.local_files = {'clip':Path('Test.mp3')}
             window.clip_origins = {'clip':'Shared'}
             window.render_clips(); root.update()
+            window.notebook.select(1); root.update()
+            self.assertEqual(window.clip_canvases['label'].winfo_y(), window.listbox.bbox('clip', 'label')[1])
+            self.assertEqual(window.clip_canvases['volume'].winfo_y(), window.listbox.bbox('clip', 'volume')[1])
+            window.clip_search.set('not found'); root.update()
+            self.assertFalse(window.listbox.get_children())
+            self.assertFalse(window.clip_canvases['label'].winfo_ismapped())
+            self.assertIn('clip', window.agent.local_files)
+            window.clip_search.set('tEsT'); root.update()
+            self.assertEqual(window.listbox.get_children(), ('clip',))
+            window.config.setdefault('clip_settings', {})['clip'] = {'label': 'Special'}
+            window.clip_search.set('special'); root.update()
+            self.assertEqual(window.listbox.get_children(), ('clip',))
+            window.clip_search.set(''); root.update()
             self.assertGreater(window.tab_buttons[1].winfo_height(), window.tab_buttons[0].winfo_height())
             self.assertEqual(len(window.clip_canvases), 2)
             window.listbox.column('label', width=100)

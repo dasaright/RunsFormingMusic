@@ -192,3 +192,5 @@ Clip audio normalization is prepared in the background when the library loads at
 Soundboard volume sliders and colored labels use two canvas surfaces instead of a native Windows control for every row. Their preloaded graphics scroll together with the table, avoiding per-control repaint trails.
 
 YouTube Music has saved favorites/playlists on the left and the shared Discord queue on the right. Right-click a queue song to Favorite it or Remove from queue. Double-click a saved item to enqueue it; saved playlist links add up to 50 songs. Favorites are saved locally and retained across relay updates. Right-click a saved item to remove it from favorites. Removing the currently playing song advances music without stopping soundboard clips.
+
+Use Search clips / labels above the soundboard for instant case-insensitive filtering. Clear restores the complete list. Filtering never deletes files or stops audio. Canvas rows align below the actual Windows column header height, including after opening the soundboard from the music tab.

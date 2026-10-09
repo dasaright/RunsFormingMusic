@@ -896,6 +896,14 @@ class RelayWindow:
         root.bind("<Control-V>", self.paste_youtube_link)
         ttk.Label(right, text="Click a filename to play • Right-click to manage • Drag headers to arrange columns", style="Muted.TLabel").pack(anchor="w", pady=(0, 10))
         ttk.Label(right, textvariable=self.folder, wraplength=900, style="Muted.TLabel").pack(anchor="w", pady=(0, 14))
+        search_bar = ttk.Frame(right)
+        search_bar.pack(fill="x", pady=(0, 10))
+        ttk.Label(search_bar, text="Search clips / labels", style="Muted.TLabel").pack(side="left", padx=(0, 10))
+        self.clip_search = tk.StringVar(value="")
+        self.clip_search_entry = ttk.Entry(search_bar, textvariable=self.clip_search)
+        self.clip_search_entry.pack(side="left", fill="x", expand=True)
+        ttk.Button(search_bar, text="Clear", command=lambda: self.clip_search.set("")).pack(side="left", padx=(8, 0))
+        self.clip_search.trace_add("write", lambda *args: self.render_clips())
         self.sync_running = False
         self.sort_keys = [("name", False)]
         self.sort_column = "name"
@@ -969,6 +977,7 @@ class RelayWindow:
         root.protocol("WM_DELETE_WINDOW", self.close)
 
     def update_tabs(self, event=None):
+        self.clip_position_signature = None
         selected = self.notebook.index(self.notebook.select())
         for index, button in enumerate(self.tab_buttons):
             button.configure(style="SelectedTab.TButton" if index == selected else "OtherTab.TButton")
@@ -1148,8 +1157,13 @@ class RelayWindow:
     def render_clips(self):
         ids = sorted_clip_ids(self.agent.local_files, self.clip_origins,
                               self.config.get("clip_settings", {}), getattr(self, "sort_keys", [("name", False)]))
+        query = self.clip_search.get().strip().casefold() if hasattr(self, "clip_search") else ""
+        if query:
+            settings = self.config.get("clip_settings", {})
+            ids = [key for key in ids if query in self.agent.local_files[key].stem.casefold()
+                   or query in settings.get(key, {}).get("label", "").casefold()]
         self.file_ids = ids
-        for key in set(self.clip_widgets) - set(ids):
+        for key in set(self.clip_widgets) - set(self.agent.local_files):
             cell = self.clip_widgets.pop(key)
             cell["menu"].destroy()
         self.listbox.delete(*self.listbox.get_children())
@@ -1360,6 +1374,14 @@ class RelayWindow:
         # The yscroll callback also reconciles Tk's final clamped position.
         offset = round(self.listbox.yview()[0] * len(self.file_ids)) * self.clip_row_height
         self.clip_scroll_offset = offset
+        # Header height changes with Windows DPI and Tk's first mapped layout.
+        # Locate the actual row body instead of reusing an unmapped bbox.
+        if self.listbox.winfo_ismapped():
+            probe_x = min(self.listbox.winfo_width() - 3, self.clip_body_left + 20)
+            body_top = next((y for y in range(min(200, self.listbox.winfo_height()))
+                             if self.listbox.identify_region(probe_x, y) == "cell"), None)
+            if body_top is not None:
+                self.clip_body_top = body_top
         y = self.clip_body_top
         x = self.clip_body_left
         positions = {}
