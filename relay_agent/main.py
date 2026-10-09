@@ -1,5 +1,7 @@
 import asyncio
 import json
+import re
+from urllib.parse import urlsplit
 import os
 import shutil
 import ssl
@@ -29,6 +31,22 @@ PROTOCOL_VERSION = 1
 PCM_FRAME_BYTES = 3840
 MAX_TRACK_SECONDS = 6 * 60 * 60
 AUDIO_EXTENSIONS = {".mp3", ".ogg", ".oga", ".opus", ".wav", ".flac", ".m4a", ".aac", ".wma", ".aif", ".aiff"}
+
+
+def clipboard_youtube_link(text):
+    # Ignore unrelated clipboard text; submit only the first actual YouTube URL.
+    pattern = r"https?://[^\s<>\"']+|(?:www\.)?(?:youtube\.com|youtu\.be)/[^\s<>\"']+"
+    for match in re.finditer(pattern, str(text), re.IGNORECASE):
+        url = match.group().rstrip(".,;!)]}")
+        if not url.lower().startswith(("http://", "https://")):
+            url = "https://" + url
+        try:
+            host = (urlsplit(url).hostname or "").lower()
+        except ValueError:
+            continue
+        if host in {"youtube.com", "youtu.be"} or host.endswith(".youtube.com"):
+            return url
+    return None
 
 
 def application_directory():
@@ -552,7 +570,12 @@ class RelayWindow:
         queue_scroll = ttk.Scrollbar(left, orient="vertical", command=self.queue_view.yview)
         self.queue_view.configure(yscrollcommand=queue_scroll.set)
         queue_scroll.pack(side="right", fill="y")
+        self.paste_playlist = tk.BooleanVar(value=bool(config.get("paste_playlist", False)))
+        ttk.Checkbutton(left, text="Check to have links play playlists instead of single song",
+                        variable=self.paste_playlist, command=self.save_paste_setting).pack(side="bottom", anchor="w", pady=8)
         self.queue_view.pack(fill="both", expand=True, padx=(0, 12))
+        root.bind("<Control-v>", self.paste_youtube_link)
+        root.bind("<Control-V>", self.paste_youtube_link)
         ttk.Label(right, text="Soundboard clips", font=("Segoe UI", 14, "bold")).pack(anchor="w", pady=8)
         buttons = ttk.Frame(right)
         buttons.pack(fill="x", pady=8)
@@ -794,6 +817,24 @@ class RelayWindow:
         self.listbox.delete(*self.listbox.get_children())
         for key in ids:
             self.listbox.insert("", "end", iid=key, values=(self.agent.local_files[key].stem, self.clip_origins[key]))
+
+    def save_paste_setting(self):
+        self.config["paste_playlist"] = bool(self.paste_playlist.get())
+        self.save()
+
+    def paste_youtube_link(self, event=None):
+        try:
+            url = clipboard_youtube_link(self.root.clipboard_get())
+        except tk.TclError:
+            return
+        if url is None:
+            return
+        index = self.destination.current()
+        guild_id = self.targets[index]["id"] if 0 <= index < len(self.targets) else None
+        self.status.set("Adding YouTube playlist…" if self.paste_playlist.get() else "Adding YouTube song…")
+        self.send({"type": "music_enqueue", "guild_id": guild_id, "url": url,
+                   "playlist": bool(self.paste_playlist.get())})
+        return "break"
 
     def song_mouse_down(self, event):
         self.queue_pressed = self.queue_view.identify_row(event.y) if self.queue_view.identify_region(event.x, event.y) == "cell" else None
