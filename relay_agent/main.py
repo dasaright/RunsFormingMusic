@@ -1,4 +1,5 @@
 import asyncio
+from array import array
 import json
 import re
 from urllib.parse import urlsplit
@@ -31,6 +32,28 @@ PROTOCOL_VERSION = 1
 PCM_FRAME_BYTES = 3840
 MAX_TRACK_SECONDS = 6 * 60 * 60
 AUDIO_EXTENSIONS = {".mp3", ".ogg", ".oga", ".opus", ".wav", ".flac", ".m4a", ".aac", ".wma", ".aif", ".aiff"}
+
+
+LABEL_COLORS = {
+    "Light Red": "#ffb3b3", "Light Orange": "#ffd1a3", "Light Yellow": "#fff2a3",
+    "Light Green": "#bde8b3", "Light Blue": "#b3d9ff", "Light Purple": "#d9b3ff",
+    "Light Pink": "#ffb3d9",
+}
+
+
+def clip_gain(frame, adjustment):
+    gain = 1 + max(-100, min(100, float(adjustment))) / 100
+    if gain == 1:
+        return frame
+    samples = array("h")
+    samples.frombytes(frame)
+    if sys.byteorder != "little":
+        samples.byteswap()
+    for index, sample in enumerate(samples):
+        samples[index] = max(-32768, min(32767, round(sample * gain)))
+    if sys.byteorder != "little":
+        samples.byteswap()
+    return samples.tobytes()
 
 
 def clipboard_youtube_link(text):
@@ -307,6 +330,8 @@ class RelayAgent:
                         if local_path is None:
                             await self.playback_gate.wait()
                         frame = exc.partial + bytes(PCM_FRAME_BYTES - len(exc.partial))
+                        if local_path is not None:
+                            frame = clip_gain(frame, self.config.get("clip_settings", {}).get(url.removeprefix("local:"), {}).get("volume", 0))
                         await self.send_binary(request_id.encode("ascii") + frame)
                     break
                 if local_path is None:
@@ -319,6 +344,8 @@ class RelayAgent:
                 # Bound catch-up after a stalled download so buffers cannot flood.
                 next_frame_at = max(next_frame_at, now - 0.1)
                 await asyncio.sleep(max(0, next_frame_at - now))
+                if local_path is not None:
+                    frame = clip_gain(frame, self.config.get("clip_settings", {}).get(url.removeprefix("local:"), {}).get("volume", 0))
                 await self.send_binary(request_id.encode("ascii") + frame)
                 next_frame_at += 0.02
             if pump_task is not None:
@@ -593,7 +620,7 @@ class RelayWindow:
         self.targets = []
         self.file_ids = []
         root.title("Runsforming Audio Relay")
-        root.geometry("1000x620")
+        root.geometry("1250x620")
         root.minsize(800, 450)
         self.status = tk.StringVar(value="Connecting…")
         self.folder = tk.StringVar(value=config.get("mp3_folder", ""))
@@ -648,13 +675,19 @@ class RelayWindow:
         self.sort_column = "name"
         self.sort_reverse = False
         self.clip_origins = {}
-        self.listbox = ttk.Treeview(right, columns=("name", "shared"), show="headings", selectmode="browse")
+        self.listbox = ttk.Treeview(right, columns=("name", "volume", "shared", "label"), show="headings", selectmode="browse")
         self.listbox.heading("name", text="Name", command=lambda: self.sort_clips("name"))
         self.listbox.heading("shared", text="Shared", command=lambda: self.sort_clips("shared"))
-        self.listbox.column("name", width=270)
+        self.listbox.column("name", width=190, minwidth=90)
+        self.listbox.heading("volume", text="Volume")
+        self.listbox.column("volume", width=150, minwidth=150, stretch=False)
+        self.listbox.heading("label", text="Label")
+        self.listbox.column("label", width=120, minwidth=90)
+        self.clip_widgets = {}
+        self.listbox.bind("<Configure>", lambda event: self.position_clip_widgets())
         self.listbox.column("shared", width=80, stretch=False)
-        clip_scroll = ttk.Scrollbar(right, orient="vertical", command=self.listbox.yview)
-        self.listbox.configure(yscrollcommand=clip_scroll.set)
+        clip_scroll = ttk.Scrollbar(right, orient="vertical", command=self.scroll_clips)
+        self.listbox.configure(yscrollcommand=lambda *args: (clip_scroll.set(*args), self.root.after_idle(self.position_clip_widgets)))
         clip_scroll.pack(side="right", fill="y")
         self.listbox.pack(fill="both", expand=True)
         self.clip_pressed_index = None
@@ -663,6 +696,11 @@ class RelayWindow:
         self.clip_menu = tk.Menu(root, tearoff=False)
         self.clip_menu.add_command(label="Rename", command=self.rename_clip)
         self.clip_menu.add_command(label="Delete", command=self.delete_clip)
+        self.clip_menu.add_command(label="Add Label", command=self.add_label)
+        color_menu = tk.Menu(self.clip_menu, tearoff=False)
+        for name, color in LABEL_COLORS.items():
+            color_menu.add_command(label=name, foreground=color, command=lambda n=name: self.change_label_color(n))
+        self.clip_menu.add_cascade(label="Change Label Color", menu=color_menu)
         self.context_clip_id = None
         self.listbox.bind("<Button-3>", self.clip_context_menu)
         ttk.Label(root, textvariable=self.status, wraplength=960).pack(anchor="w", padx=16, pady=8)
@@ -879,9 +917,100 @@ class RelayWindow:
         else:
             ids.sort(key=lambda key: self.agent.local_files[key].stem.casefold(), reverse=self.sort_reverse)
         self.file_ids = ids
+        for widgets in self.clip_widgets.values():
+            for widget in widgets:
+                widget.destroy()
+        self.clip_widgets.clear()
         self.listbox.delete(*self.listbox.get_children())
         for key in ids:
-            self.listbox.insert("", "end", iid=key, values=(self.agent.local_files[key].stem, self.clip_origins[key]))
+            self.listbox.insert("", "end", iid=key, values=(self.agent.local_files[key].stem, "", self.clip_origins[key], ""))
+        self.root.after_idle(self.position_clip_widgets)
+
+    def scroll_clips(self, *args):
+        self.listbox.yview(*args)
+        self.position_clip_widgets()
+
+    def clip_setting(self, key):
+        return self.config.setdefault("clip_settings", {}).setdefault(key, {})
+
+    def set_clip_volume(self, key, value, text):
+        volume = round(float(value))
+        self.clip_setting(key)["volume"] = volume
+        text.configure(text=f"{volume:+d}%" if volume else "0%")
+        # Save once dragging settles, keeping the audio loop and UI responsive.
+        pending = getattr(self, "volume_save_after", None)
+        if pending:
+            self.root.after_cancel(pending)
+        self.volume_save_after = self.root.after(300, self.save_volume)
+
+    def save_volume(self):
+        self.volume_save_after = None
+        self.save()
+
+    def position_clip_widgets(self):
+        for key in self.file_ids:
+            boxes = [self.listbox.bbox(key, column) for column in ("volume", "label")]
+            if not all(boxes):
+                for widget in self.clip_widgets.pop(key, ()):
+                    widget.destroy()
+                continue
+            if key not in self.clip_widgets:
+                frame = ttk.Frame(self.listbox)
+                text = ttk.Label(frame, width=6)
+                text.pack(side="right")
+                scale = ttk.Scale(frame, from_=-100, to=100,
+                                  command=lambda value, k=key, t=text: self.set_clip_volume(k, value, t))
+                scale.set(self.clip_setting(key).get("volume", 0))
+                scale.pack(side="left", fill="x", expand=True)
+                label = tk.Menubutton(self.listbox, relief="flat", anchor="w", indicatoron=True)
+                menu = tk.Menu(label, tearoff=False)
+                label.configure(menu=menu)
+                self.clip_widgets[key] = (frame, label)
+            frame, label = self.clip_widgets[key]
+            current = self.clip_setting(key).get("label", "")
+            color = self.config.get("clip_labels", {}).get(current, "#ffffff")
+            label.configure(text=current or "Select…", background=color, activebackground=color)
+            menu = label["menu"]
+            menu = label.nametowidget(menu)
+            menu.delete(0, "end")
+            for name in ["", *sorted(self.config.get("clip_labels", {}), key=str.casefold)]:
+                menu.add_command(label=name or "No label", command=lambda k=key, n=name: self.set_clip_label(k, n))
+            for widget, (x, y, width, height) in zip((frame, label), boxes):
+                widget.place(x=x, y=y, width=width, height=height)
+            for widget in (frame, label, *frame.winfo_children()):
+                widget.bind("<Button-3>", lambda event, k=key: self.open_clip_menu(k, event))
+
+    def set_clip_label(self, key, name):
+        self.clip_setting(key)["label"] = name
+        self.save()
+        self.position_clip_widgets()
+
+    def add_label(self):
+        name = simpledialog.askstring("Add Label", "Label name:", parent=self.root)
+        if not name or not name.strip():
+            return
+        name = name.strip()
+        self.config.setdefault("clip_labels", {}).setdefault(name, LABEL_COLORS["Light Blue"])
+        self.set_clip_label(self.context_clip_id, name)
+
+    def change_label_color(self, color_name):
+        name = self.clip_setting(self.context_clip_id).get("label")
+        if name:
+            self.config.setdefault("clip_labels", {})[name] = LABEL_COLORS[color_name]
+            self.save()
+            self.position_clip_widgets()
+
+    def open_clip_menu(self, file_id, event):
+        self.context_clip_id = file_id
+        self.clip_pressed_index = None
+        self.listbox.selection_set(file_id)
+        has_label = bool(self.clip_setting(file_id).get("label"))
+        self.clip_menu.entryconfigure("Change Label Color", state="normal" if has_label else "disabled")
+        try:
+            self.clip_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.clip_menu.grab_release()
+        return "break"
 
     def save_paste_setting(self):
         self.config["paste_playlist"] = bool(self.paste_playlist.get())
@@ -921,14 +1050,7 @@ class RelayWindow:
         file_id = self.listbox.identify_row(event.y)
         if self.listbox.identify_region(event.x, event.y) != "cell" or file_id not in self.agent.local_files:
             return
-        self.context_clip_id = file_id
-        self.listbox.selection_set(file_id)
-        self.listbox.focus(file_id)
-        try:
-            self.clip_menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            self.clip_menu.grab_release()
-        return "break"
+        return self.open_clip_menu(file_id, event)
 
     def editable_clip(self):
         file_id = self.context_clip_id
@@ -976,7 +1098,8 @@ class RelayWindow:
         def done(result):
             try:
                 status = result.result()
-                self.agent.events.put({"clip_edit_done": file_id, "status": status})
+                self.agent.events.put({"clip_edit_done": file_id, "status": status,
+                                       "renamed_path": str(path.with_name(new_name.strip() if new_name.lower().endswith(path.suffix.lower()) else new_name.strip() + path.suffix)) if new_name is not None else None})
             except Exception as exc:
                 self.agent.events.put({"clip_edit_done": file_id, "clip_edit_error": str(exc)})
         future.add_done_callback(done)
@@ -1017,6 +1140,13 @@ class RelayWindow:
             event = self.agent.events.get_nowait()
             if event.get("clip_edit_done"):
                 self.editing_clips.discard(event["clip_edit_done"])
+                if event.get("renamed_path"):
+                    settings = self.config.setdefault("clip_settings", {})
+                    old = settings.pop(event["clip_edit_done"], None)
+                    if old is not None:
+                        new_key = hashlib.sha256(str(Path(event["renamed_path"]).resolve()).encode()).hexdigest()
+                        settings[new_key] = old
+                        self.save()
                 if event.get("clip_edit_error"):
                     messagebox.showerror("Could not edit clip", event["clip_edit_error"], parent=self.root)
                 self.refresh_files()

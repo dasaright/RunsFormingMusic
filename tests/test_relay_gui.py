@@ -63,6 +63,8 @@ class SortingTests(unittest.TestCase):
         window.listbox.get_children.return_value = []
         window.agent = SimpleNamespace(local_files={'1':Path('Z.mp3'), '2':Path('A.mp3'), '3':Path('B.ogg')})
         window.clip_origins = {'1':'Local','2':'Local','3':'Shared'}
+        window.clip_widgets = {}
+        window.root = Mock()
         window.sort_column = 'name'
         window.sort_reverse = False
         window.sort_clips('shared')

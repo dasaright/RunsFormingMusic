@@ -163,3 +163,8 @@ With the relay window active, press Ctrl+V to add the first YouTube link found i
 Right-click a soundboard row to rename or delete its file on this PC. Rename preserves the audio extension and rejects conflicts. Delete asks for confirmation. Shared entries are local copies: sync can restore a deleted shared clip, and a renamed shared copy is uploaded as a new clip. These actions do not delete or rename GitHub files. **Change folder**, to the right of the local folder path, selects and remembers your private clip folder.
 
 Renaming or deleting an active clip stops only that file's playback on your relay and waits for FFmpeg to release its file handle. Other clips and music continue. Windows file-lock errors are retried briefly; if another application still holds the file, the error is shown.
+
+### Clip volume and labels
+Each soundboard row has a Volume slider: centered 0% preserves original loudness, -100% mutes, and +100% doubles amplitude (peaks are limited to avoid overflow). Changes apply to currently playing and future clips; YouTube volume is unaffected.
+
+Use the Label dropdown to choose a saved label or No label. Right-click a clip and choose Add Label to create and assign one. Change Label Color opens seven pastel color choices and updates the label cell for every clip with that label. Volume, labels, and colors are saved locally, including for shared clips; rename preserves settings. Only clicking the filename plays a clip.
