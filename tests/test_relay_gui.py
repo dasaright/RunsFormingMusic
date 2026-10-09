@@ -64,6 +64,7 @@ class SortingTests(unittest.TestCase):
         window.agent = SimpleNamespace(local_files={'1':Path('Z.mp3'), '2':Path('A.mp3'), '3':Path('B.ogg')})
         window.clip_origins = {'1':'Local','2':'Local','3':'Shared'}
         window.clip_widgets = {}
+        window.preload_clip_widgets = Mock()
         window.root = Mock()
         window.config = {}
         window.sort_keys = [('name', False)]

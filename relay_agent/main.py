@@ -300,6 +300,10 @@ class RelayAgent:
         self.stream_request_id = None
         self.local_files = {}
         self.normalization_cache = dict(config.get("clip_normalization", {}))
+        self.normalization_locks = {}
+        self.preload_task = None
+        self.preload_lock = asyncio.Lock()
+        self.preload_path = None
         self.clip_tasks = {}
         self.clip_file_ids = {}
         self.playback_gate = asyncio.Event()
@@ -374,6 +378,57 @@ class RelayAgent:
                 "error": clean_error(exc),
             })
 
+    async def normalize_clip(self, path):
+        key = str(path.resolve())
+        async with self.normalization_locks.setdefault(key, asyncio.Lock()):
+            stat = path.stat()
+            fingerprint = [stat.st_mtime_ns, stat.st_size, NORMALIZATION_VERSION]
+            cached = self.normalization_cache.get(key)
+            if cached and cached.get("fingerprint") == fingerprint:
+                return cached["gain_db"]
+            process = None
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    str(FFMPEG_PATH), "-hide_banner", "-threads", "1", "-i", str(path),
+                    "-vn", "-sn", "-dn", "-af", "volumedetect", "-f", "null", "-",
+                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+                _, report = await asyncio.wait_for(process.communicate(), timeout=60)
+                if process.returncode:
+                    raise ValueError("Could not analyze this clip for normalization.")
+                gain_db = clip_normalization_gain(report.decode(errors="replace"))
+                self.normalization_cache = {**self.normalization_cache,
+                                            key: {"fingerprint": fingerprint, "gain_db": gain_db}}
+                self.events.put({"normalization_cache": self.normalization_cache})
+                return gain_db
+            finally:
+                if process is not None and process.returncode is None:
+                    process.kill()
+                    await process.communicate()
+
+    async def preload_normalization(self, files):
+        async with self.preload_lock:
+            if self.preload_task and not self.preload_task.done():
+                self.preload_task.cancel()
+                await asyncio.gather(self.preload_task, return_exceptions=True)
+            self.preload_task = asyncio.create_task(self.analyze_library(files))
+
+    async def analyze_library(self, files):
+        failed = 0
+        try:
+            for path in files.values():
+                self.preload_path = path
+                try:
+                    await self.normalize_clip(path)
+                except (OSError, ValueError, asyncio.TimeoutError):
+                    failed += 1
+                finally:
+                    self.preload_path = None
+                await asyncio.sleep(0)
+            self.events.put({"status": "Clip audio ready." + (f" Could not analyze {failed} files; playback will retry." if failed else "")})
+        finally:
+            self.preload_path = None
+
     async def stream(self, request_id, url):
         ytdlp = None
         ffmpeg = None
@@ -400,25 +455,7 @@ class RelayAgent:
                 )
             normalization_args = []
             if local_path is not None:
-                stat = local_path.stat()
-                key = str(local_path.resolve())
-                fingerprint = [stat.st_mtime_ns, stat.st_size, NORMALIZATION_VERSION]
-                cached = self.normalization_cache.get(key)
-                if cached and cached.get("fingerprint") == fingerprint:
-                    gain_db = cached["gain_db"]
-                else:
-                    ffmpeg = await asyncio.create_subprocess_exec(
-                        str(FFMPEG_PATH), "-hide_banner", "-i", str(local_path),
-                        "-vn", "-sn", "-dn", "-af", "volumedetect", "-f", "null", "-",
-                        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
-                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
-                    _, report = await asyncio.wait_for(ffmpeg.communicate(), timeout=60)
-                    if ffmpeg.returncode:
-                        raise ValueError("Could not analyze this clip for normalization.")
-                    gain_db = clip_normalization_gain(report.decode(errors="replace"))
-                    self.normalization_cache = {**self.normalization_cache,
-                                                key: {"fingerprint": fingerprint, "gain_db": gain_db}}
-                    self.events.put({"normalization_cache": self.normalization_cache})
+                gain_db = await self.normalize_clip(local_path)
                 normalization_args = ["-af", f"volume={gain_db}dB"]
             ffmpeg = await asyncio.create_subprocess_exec(
                 str(FFMPEG_PATH),
@@ -545,6 +582,9 @@ class RelayAgent:
         return target
 
     async def edit_clip_file(self, file_id, path, new_name=None):
+        if self.preload_path == path and self.preload_task:
+            self.preload_task.cancel()
+            await asyncio.gather(self.preload_task, return_exceptions=True)
         for attempt in range(30):
             tasks = [task for request_id, task in list(self.clip_tasks.items())
                      if self.clip_file_ids.get(request_id) == file_id]
@@ -1083,13 +1123,13 @@ class RelayWindow:
         ids = sorted_clip_ids(self.agent.local_files, self.clip_origins,
                               self.config.get("clip_settings", {}), getattr(self, "sort_keys", [("name", False)]))
         self.file_ids = ids
-        for widgets in self.clip_widgets.values():
-            for widget in widgets:
+        for key in set(self.clip_widgets) - set(ids):
+            for widget in self.clip_widgets.pop(key):
                 widget.destroy()
-        self.clip_widgets.clear()
         self.listbox.delete(*self.listbox.get_children())
         for key in ids:
             self.listbox.insert("", "end", iid=key, values=(self.agent.local_files[key].stem, "", "☑" if self.clip_origins[key] == "Shared" else "☐", ""))
+        self.preload_clip_widgets()
         self.root.after_idle(self.position_clip_widgets)
 
     def bind_smooth_scroll(self, widget, tree=None):
@@ -1162,22 +1202,9 @@ class RelayWindow:
         self.volume_save_after = None
         self.save()
 
-    def position_clip_widgets(self):
-        # Work is bounded by viewport height, even with thousands of files.
-        visible = set()
-        for y in range(self.listbox.winfo_height()):
-            key = self.listbox.identify_row(y)
-            if key:
-                visible.add(key)
-        for key in set(self.clip_widgets) - visible:
-            for widget in self.clip_widgets.pop(key):
-                widget.destroy()
-        for key in visible:
-            boxes = [self.listbox.bbox(key, column) for column in ("volume", "label")]
-            if not all(boxes):
-                for widget in self.clip_widgets.pop(key, ()):
-                    widget.destroy()
-                continue
+    def preload_clip_widgets(self):
+        # Create and configure controls before scrolling, including offscreen rows.
+        for key in self.file_ids:
             if key not in self.clip_widgets:
                 frame = ttk.Frame(self.listbox, style="Clip.TFrame")
                 text = ttk.Label(frame, width=6, style="Clip.TLabel")
@@ -1207,10 +1234,34 @@ class RelayWindow:
                 for name in ("", *names):
                     menu.add_command(label=name or "No label", command=lambda k=key, n=name: self.set_clip_label(k, n))
                 label.clip_menu_names = names
-            for widget, (x, y, width, height) in zip((frame, label), boxes):
-                widget.place(x=x, y=y, width=width, height=height)
-            for widget in (frame, label, *frame.winfo_children()):
-                widget.bind("<Button-3>", lambda event, k=key: self.open_clip_menu(k, event))
+
+    def position_clip_widgets(self):
+        # Identify visible rows in bounded work; reuse every preloaded control.
+        visible = set()
+        row_height = int(ttk.Style(self.root).lookup("Soundboard.Treeview", "rowheight") or 18)
+        for y in range(0, self.listbox.winfo_height(), max(1, row_height // 2)):
+            key = self.listbox.identify_row(y)
+            if key:
+                visible.add(key)
+        previous = getattr(self, "visible_clip_widgets", set())
+        for key in previous - visible:
+            for widget in self.clip_widgets.get(key, ()):
+                widget.place_forget()
+        self.visible_clip_widgets = visible
+        # Compatibility with callers creating rows directly (desktop smoke checks).
+        if any(key not in self.clip_widgets for key in visible):
+            self.preload_clip_widgets()
+        for key in visible:
+            widgets = self.clip_widgets.get(key)
+            if not widgets:
+                continue
+            boxes = [self.listbox.bbox(key, column) for column in ("volume", "label")]
+            for widget, box in zip(widgets, boxes):
+                if box:
+                    x, y, width, height = box
+                    widget.place(x=x, y=y, width=width, height=height)
+                else:
+                    widget.place_forget()
 
     def select_label_row(self, key):
         self.clip_pressed_index = None
@@ -1236,7 +1287,7 @@ class RelayWindow:
         if name:
             self.config.setdefault("clip_labels", {})[name] = LABEL_COLORS[color_name]
             self.save()
-            self.position_clip_widgets()
+            self.render_clips()
 
     def open_clip_menu(self, file_id, event):
         self.context_clip_id = file_id
@@ -1450,7 +1501,8 @@ class RelayWindow:
             event = self.agent.events.get_nowait()
             if "normalization_cache" in event:
                 self.config["clip_normalization"] = event["normalization_cache"]
-                self.save()
+                if getattr(self, "normalization_save_after", None) is None:
+                    self.normalization_save_after = self.root.after(1000, self.save_normalization)
             if event.get("share_done"):
                 self.editing_clips.discard(event["share_done"])
                 if event.get("share_error"):
@@ -1505,7 +1557,8 @@ class RelayWindow:
                 self.agent.local_files = files
                 self.clip_origins = event["origins"]
                 self.render_clips()
-                self.status.set(f"Loaded {len(files)} valid audio files.")
+                asyncio.run_coroutine_threadsafe(self.agent.preload_normalization(dict(files)), self.loop)
+                self.status.set(f"Loaded {len(files)} valid audio files. Preparing clip audio…")
             if "music" in event:
                 music = event["music"]
                 self.current_song.set(music.get("current") or "Your next song starts here")
@@ -1532,7 +1585,13 @@ class RelayWindow:
         if not self.poll_updates():
             self.root.after(100, self.poll)
 
+    def save_normalization(self):
+        self.normalization_save_after = None
+        self.save()
+
     def close(self):
+        self.config["clip_normalization"] = self.agent.normalization_cache
+        self.save()
         def cancel_all():
             for task in asyncio.all_tasks(self.loop):
                 task.cancel()

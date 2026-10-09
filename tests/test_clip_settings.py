@@ -67,6 +67,42 @@ class ClipSettingsTests(unittest.TestCase):
         finally:
             root.destroy()
 
+    def test_scrolling_keeps_all_preloaded_widgets_and_colors(self):
+        import tkinter as tk
+        from tkinter import ttk
+        from unittest.mock import patch
+        try:
+            root = tk.Tk()
+        except tk.TclError:
+            self.skipTest("Requires Windows desktop")
+        try:
+            w = RelayWindow.__new__(RelayWindow)
+            w.root = root
+            w.config = {"clip_labels": {"Test": "#bde8b3"},
+                        "clip_settings": {str(i): {"label": "Test"} for i in range(100)}}
+            w.file_ids = list(w.config["clip_settings"])
+            w.clip_widgets = {}
+            w.listbox = ttk.Treeview(root, columns=("name", "volume", "shared", "label"), show="headings")
+            w.listbox.pack()
+            for key in w.file_ids:
+                w.listbox.insert("", "end", iid=key)
+            root.update()
+            w.preload_clip_widgets()
+            original = dict(w.clip_widgets)
+            self.assertEqual(len(original), 100)
+            self.assertEqual(original['99'][1].cget('background'), '#bde8b3')
+            with patch('relay_agent.main.ttk.Frame', side_effect=AssertionError("Scroll created a frame")), \
+                 patch('relay_agent.main.tk.Menubutton', side_effect=AssertionError("Scroll created a label")):
+                for fraction in (0, .5, 1, 0):
+                    w.listbox.yview_moveto(fraction)
+                    w.position_clip_widgets()
+                    root.update()
+                    self.assertEqual(w.clip_widgets, original)
+            self.assertTrue(original['0'][0].winfo_ismapped())
+            self.assertFalse(original['99'][0].winfo_ismapped())
+        finally:
+            root.destroy()
+
     def test_layered_sort_shared_then_label_then_name(self):
         from relay_agent.main import sorted_clip_ids
         files = {k:Path(n+'.mp3') for k,n in [('a','Zulu'),('b','Apple'),('c','Banana'),('d','Local')]}

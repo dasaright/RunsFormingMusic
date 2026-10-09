@@ -186,3 +186,5 @@ Local and shared clips are measured once and adjusted toward -20 dBFS average lo
 Soundboard rows are 18 pixels tall (half the previous height). Refresh files, Stop all clips, and Sync clips are at the bottom left. Automatic updates, Check for updates, Install update now, and Change folder sit at the top right beside the tabs.
 
 Soundboard columns keep their widths when the window expands or the last column shrinks, leaving unused space on the right. Opening a label dropdown highlights that clip row; the selection stays after applying a label.
+
+Clip audio normalization is prepared in the background when the library loads at startup or refresh. Unchanged files reuse saved measurements. Soundboard sliders, label menus, and colors are preloaded for all clips and retained while scrolling.

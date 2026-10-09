@@ -130,6 +130,12 @@ class NormalizationTests(unittest.IsolatedAsyncioTestCase):
                 return math.sqrt(sum(x*x for x in samples)/len(samples))
             real_spawn = asyncio.create_subprocess_exec
             with patch('relay_agent.main.FFMPEG_PATH',Path(ffmpeg)), patch('relay_agent.main.asyncio.create_subprocess_exec',side_effect=real_spawn) as spawn:
+                await agent.preload_normalization(dict(agent.local_files))
+                await agent.preload_task
+                self.assertEqual(spawn.call_count, 2)
+                await agent.preload_normalization(dict(agent.local_files))
+                await agent.preload_task
+                self.assertEqual(spawn.call_count, 2)
                 quiet = await play('quiet'); loud = await play('loud')
                 self.assertLess(abs(20*math.log10(quiet/loud)), 0.3)
                 self.assertEqual(spawn.call_count,4)
