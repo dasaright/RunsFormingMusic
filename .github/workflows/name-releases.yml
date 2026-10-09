@@ -18,9 +18,31 @@ concurrency:
 
 jobs:
   name-releases:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install certifi
+      - name: Verify published update download
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh api "repos/$GH_REPO/releases?per_page=30" > releases.json
+          python - <<'PYCODE'
+          import json, shutil
+          from relay_agent import updater
+          releases = json.load(open('releases.json'))
+          original = updater.read_json
+          updater.read_json = lambda url: releases if url == updater.RELEASES_URL else original(url)
+          update = updater.find_update(0)
+          if update is not None:
+              stage = updater.prepare_update(update)
+              shutil.rmtree(stage)
+              print('Published update downloaded publicly; checksum and layout verified:', update['build'])
+          PYCODE
       - name: Apply RunsFormingMusic version titles
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
