@@ -851,9 +851,11 @@ class RelayWindow:
         self.listbox.bind("<Configure>", lambda event: self.position_clip_widgets())
         self.listbox.column("shared", width=80, stretch=False, anchor="center")
         clip_scroll = ttk.Scrollbar(right, orient="vertical", command=self.scroll_clips)
-        self.listbox.configure(yscrollcommand=lambda *args: (clip_scroll.set(*args), self.root.after_idle(self.position_clip_widgets)))
+        self.listbox.configure(yscrollcommand=lambda *args: (clip_scroll.set(*args), self.schedule_clip_position()))
         clip_scroll.pack(side="right", fill="y")
         self.listbox.pack(fill="both", expand=True)
+        self.bind_smooth_scroll(self.listbox)
+        self.bind_smooth_scroll(self.queue_view)
         self.clip_pressed_index = None
         self.listbox.bind("<ButtonPress-1>", self.clip_mouse_down)
         self.listbox.bind("<ButtonRelease-1>", self.play_selected)
@@ -1090,7 +1092,56 @@ class RelayWindow:
             self.listbox.insert("", "end", iid=key, values=(self.agent.local_files[key].stem, "", "☑" if self.clip_origins[key] == "Shared" else "☐", ""))
         self.root.after_idle(self.position_clip_widgets)
 
+    def bind_smooth_scroll(self, widget, tree=None):
+        tree = tree or widget
+        widget.bind("<MouseWheel>", lambda event: self.smooth_scroll(event, tree))
+        widget.bind("<Button-4>", lambda event: self.smooth_scroll(event, tree, -1))
+        widget.bind("<Button-5>", lambda event: self.smooth_scroll(event, tree, 1))
+
+    def smooth_scroll(self, event, tree, units=None):
+        # Preserve high-resolution wheel deltas rather than rounding each event.
+        if units is None:
+            units = -event.delta / 120 if sys.platform != "darwin" else -event.delta
+        states = getattr(self, "scroll_states", None)
+        if states is None:
+            self.scroll_states = states = {}
+        state = states.setdefault(tree, {"pending": 0.0, "after": None})
+        if state["pending"] * units < 0:
+            state["pending"] = 0.0
+        state["pending"] = max(-12, min(12, state["pending"] + units))
+        if state["after"] is None and abs(state["pending"]) >= 1:
+            self.scroll_step(tree, state)
+        return "break"
+
+    def scroll_step(self, tree, state):
+        state["after"] = None
+        if abs(state["pending"]) < 1:
+            return
+        step = 1 if state["pending"] > 0 else -1
+        before = tree.yview()
+        tree.yview_scroll(step, "units")
+        state["pending"] -= step
+        if tree is self.listbox:
+            self.position_clip_widgets()
+        if tree.yview() == before:
+            state["pending"] = 0.0
+        elif abs(state["pending"]) >= 1:
+            state["after"] = self.root.after(16, lambda: self.scroll_step(tree, state))
+
+    def schedule_clip_position(self):
+        if getattr(self, "clip_position_after", None) is None:
+            self.clip_position_after = self.root.after_idle(self.flush_clip_position)
+
+    def flush_clip_position(self):
+        self.clip_position_after = None
+        self.position_clip_widgets()
+
     def scroll_clips(self, *args):
+        state = getattr(self, "scroll_states", {}).get(self.listbox)
+        if state:
+            if state["after"] is not None:
+                self.root.after_cancel(state["after"])
+            state.update(pending=0.0, after=None)
         self.listbox.yview(*args)
         self.position_clip_widgets()
 
@@ -1112,7 +1163,16 @@ class RelayWindow:
         self.save()
 
     def position_clip_widgets(self):
-        for key in self.file_ids:
+        # Work is bounded by viewport height, even with thousands of files.
+        visible = set()
+        for y in range(self.listbox.winfo_height()):
+            key = self.listbox.identify_row(y)
+            if key:
+                visible.add(key)
+        for key in set(self.clip_widgets) - visible:
+            for widget in self.clip_widgets.pop(key):
+                widget.destroy()
+        for key in visible:
             boxes = [self.listbox.bbox(key, column) for column in ("volume", "label")]
             if not all(boxes):
                 for widget in self.clip_widgets.pop(key, ()):
@@ -1132,15 +1192,21 @@ class RelayWindow:
                 menu.configure(postcommand=lambda k=key: self.select_label_row(k))
                 label.configure(menu=menu)
                 self.clip_widgets[key] = (frame, label)
+                for widget in (frame, label, *frame.winfo_children()):
+                    self.bind_smooth_scroll(widget, self.listbox)
+                    widget.bind("<Button-3>", lambda event, k=key: self.open_clip_menu(k, event))
             frame, label = self.clip_widgets[key]
             current = self.clip_setting(key).get("label", "")
             color = self.config.get("clip_labels", {}).get(current, "#ffffff")
             label.configure(text=current or "Select…", background=color, activebackground=color)
             menu = label["menu"]
             menu = label.nametowidget(menu)
-            menu.delete(0, "end")
-            for name in ["", *sorted(self.config.get("clip_labels", {}), key=str.casefold)]:
-                menu.add_command(label=name or "No label", command=lambda k=key, n=name: self.set_clip_label(k, n))
+            names = tuple(sorted(self.config.get("clip_labels", {}), key=str.casefold))
+            if getattr(label, "clip_menu_names", None) != names:
+                menu.delete(0, "end")
+                for name in ("", *names):
+                    menu.add_command(label=name or "No label", command=lambda k=key, n=name: self.set_clip_label(k, n))
+                label.clip_menu_names = names
             for widget, (x, y, width, height) in zip((frame, label), boxes):
                 widget.place(x=x, y=y, width=width, height=height)
             for widget in (frame, label, *frame.winfo_children()):
