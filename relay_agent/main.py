@@ -1141,14 +1141,14 @@ class RelayWindow:
     def smooth_scroll(self, event, tree, units=None):
         # Preserve high-resolution wheel deltas rather than rounding each event.
         if units is None:
-            units = -event.delta / 120 * 3 if sys.platform != "darwin" else -event.delta
+            units = -event.delta / 120 * 9 if sys.platform != "darwin" else -event.delta
         states = getattr(self, "scroll_states", None)
         if states is None:
             self.scroll_states = states = {}
         state = states.setdefault(tree, {"pending": 0.0, "after": None})
         if state["pending"] * units < 0:
             state["pending"] = 0.0
-        state["pending"] = max(-12, min(12, state["pending"] + units))
+        state["pending"] = max(-36, min(36, state["pending"] + units))
         if state["after"] is None and abs(state["pending"]) >= 1:
             self.scroll_step(tree, state)
         return "break"
@@ -1157,7 +1157,7 @@ class RelayWindow:
         state["after"] = None
         if abs(state["pending"]) < 1:
             return
-        step = 1 if state["pending"] > 0 else -1
+        step = min(3, int(abs(state["pending"]))) * (1 if state["pending"] > 0 else -1)
         before = tree.yview()
         tree.yview_scroll(step, "units")
         state["pending"] -= step

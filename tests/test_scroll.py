@@ -12,16 +12,25 @@ class ScrollTests(unittest.TestCase):
         w.position_clip_widgets = Mock()
         return w
 
-    def test_fractional_wheel_deltas_accumulate_and_one_row_per_frame(self):
+    def test_fractional_wheel_deltas_accumulate_and_animate(self):
         w = self.window()
         for _ in range(3):
-            w.smooth_scroll(SimpleNamespace(delta=-10), w.listbox)
+            w.smooth_scroll(SimpleNamespace(delta=-10/3), w.listbox)
         w.listbox.yview_scroll.assert_not_called()
-        w.smooth_scroll(SimpleNamespace(delta=-10), w.listbox)
+        w.smooth_scroll(SimpleNamespace(delta=-10/3), w.listbox)
         w.listbox.yview_scroll.assert_called_once_with(1, 'units')
         w.smooth_scroll(SimpleNamespace(delta=-480), w.listbox)
         self.assertEqual(w.listbox.yview_scroll.call_count, 2)
         self.assertEqual(w.root.after.call_args.args[0], 16)
+
+    def test_wheel_notch_moves_nine_rows_in_three_frames(self):
+        w = self.window()
+        w.smooth_scroll(SimpleNamespace(delta=-120), w.listbox)
+        state = w.scroll_states[w.listbox]
+        while abs(state['pending']) >= 1:
+            w.scroll_step(w.listbox, state)
+        self.assertEqual([c.args for c in w.listbox.yview_scroll.call_args_list],
+                         [(3, 'units')] * 3)
 
     def test_scrollbar_cancels_pending_wheel_movement(self):
         w = self.window()
