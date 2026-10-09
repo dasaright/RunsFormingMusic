@@ -184,3 +184,5 @@ Sharing first checks GitHub for retired filenames and conflicting content, requi
 Local and shared clips are measured once and adjusted toward -20 dBFS average loudness, with peaks kept at or below -7 dBFS before the slider applies. Quiet clips gain up to 24 dB; louder clips are reduced. The manual per-clip slider applies afterward and remains independent. Original audio files are unchanged. Measurements are cached in relay-config.json and refreshed when a file changes; the first play can take slightly longer while analyzing. YouTube audio is unaffected.
 
 Soundboard rows are 18 pixels tall (half the previous height). Refresh files, Stop all clips, and Sync clips are at the bottom left. Automatic updates, Check for updates, Install update now, and Change folder sit at the top right beside the tabs.
+
+Soundboard columns keep their widths when the window expands or the last column shrinks, leaving unused space on the right. Opening a label dropdown highlights that clip row; the selection stays after applying a label.

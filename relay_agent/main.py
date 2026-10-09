@@ -838,11 +838,11 @@ class RelayWindow:
         self.listbox = ttk.Treeview(right, columns=("name", "volume", "shared", "label"), show="headings", selectmode="browse", style="Soundboard.Treeview")
         self.listbox.heading("name", text="Name")
         self.listbox.heading("shared", text="Shared")
-        self.listbox.column("name", width=400, minwidth=120)
+        self.listbox.column("name", width=400, minwidth=120, stretch=False)
         self.listbox.heading("volume", text="Volume")
         self.listbox.column("volume", width=150, minwidth=150, stretch=False)
         self.listbox.heading("label", text="Label")
-        self.listbox.column("label", width=200, minwidth=100)
+        self.listbox.column("label", width=200, minwidth=100, stretch=False)
         self.clip_widgets = {}
         self.header_drag = None
         self.column_order = clip_column_order(config.get("clip_column_order"))
@@ -1128,6 +1128,7 @@ class RelayWindow:
                 label = tk.Menubutton(self.listbox, relief="flat", anchor="w", indicatoron=False, borderwidth=0,
                                       highlightthickness=0, padx=10, font=("Segoe UI", 9))
                 menu = themed_menu(label)
+                menu.configure(postcommand=lambda k=key: self.select_label_row(k))
                 label.configure(menu=menu)
                 self.clip_widgets[key] = (frame, label)
             frame, label = self.clip_widgets[key]
@@ -1144,10 +1145,16 @@ class RelayWindow:
             for widget in (frame, label, *frame.winfo_children()):
                 widget.bind("<Button-3>", lambda event, k=key: self.open_clip_menu(k, event))
 
+    def select_label_row(self, key):
+        self.clip_pressed_index = None
+        self.listbox.selection_set(key)
+        self.listbox.focus(key)
+
     def set_clip_label(self, key, name):
         self.clip_setting(key)["label"] = name
         self.save()
         self.render_clips()
+        self.select_label_row(key)
 
     def add_label(self):
         name = simpledialog.askstring("Add Label", "Label name:", parent=self.root)

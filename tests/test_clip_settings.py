@@ -20,6 +20,7 @@ class ClipSettingsTests(unittest.TestCase):
         window.save = Mock()
         window.position_clip_widgets = Mock()
         window.render_clips = Mock()
+        window.listbox = Mock()
         window.change_label_color("Light Pink")
         self.assertEqual(window.config["clip_labels"]["Funny"], LABEL_COLORS["Light Pink"])
         self.assertEqual(window.config["clip_labels"]["Other"], "#ffffff")
