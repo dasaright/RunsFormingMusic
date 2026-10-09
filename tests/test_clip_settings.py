@@ -91,6 +91,8 @@ class ClipSettingsTests(unittest.TestCase):
                 w.listbox.insert("", "end", iid=key)
             root.update()
             w.preload_clip_widgets()
+            w.listbox.configure(yscrollcommand=lambda *args: w.schedule_clip_position())
+            root.update()
             original = dict(w.clip_widgets)
             self.assertEqual(len(original), 100)
             self.assertEqual(w.clip_canvases['label'].itemcget(original['99']['label'][0], 'fill'), '#bde8b3')
@@ -108,6 +110,7 @@ class ClipSettingsTests(unittest.TestCase):
             # Canvas row hit testing follows the Treeview scroll position.
             w.listbox.yview_moveto(.5)
             w.position_clip_widgets()
+            root.update()
             first = next(w.listbox.identify_row(y) for y in range(w.listbox.winfo_height()) if w.listbox.identify_row(y))
             event = SimpleNamespace(widget=w.clip_canvases['label'], y=9)
             self.assertEqual(w.canvas_clip_key(event), first)

@@ -1330,6 +1330,7 @@ class RelayWindow:
         self.clip_position_signature = signature
         # Treeview bbox can lag a scroll until Tk's next display pass. Use the
         # scroll fraction and fixed column geometry so both layers move together.
+        # The yscroll callback also reconciles Tk's final clamped position.
         offset = round(self.listbox.yview()[0] * len(self.file_ids)) * self.clip_row_height
         self.clip_scroll_offset = offset
         y = self.clip_body_top
