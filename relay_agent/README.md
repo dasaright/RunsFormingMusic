@@ -141,3 +141,9 @@ into its folder, preserving relay-config.json. Legacy root-level FFmpeg and
 yt-dlp files can be removed after Files contains their replacements. Future
 relay updates use GitHub releases automatically; ordinary bot updates do not
 trigger a new executable build.
+
+## Shared clips
+
+The right pane lists your chosen local folder and the separate `sharedclips` folder beside the executable. Name sorts filenames; Shared toggles Local-first / Shared-first, alphabetically within each group. Click a filename to play. **Sync clips** uploads new files from `sharedclips` and downloads missing shared files. Local files are never uploaded. Put files into `sharedclips` to share them. Shared files are public in this repository. Sync adds files only; rename conflicts and keep clips under 20 MB. Updates preserve both folders.
+
+Bot administrator: configure `SHARED_CLIPS_GITHUB_TOKEN` on Railway with a fine-grained GitHub token restricted to `dasaright/RunsFormingMusic`, Contents read/write. Approved relay tokens authorize sync. The GitHub token stays on the bot and is never distributed in the executable.

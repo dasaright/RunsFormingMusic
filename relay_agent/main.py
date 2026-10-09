@@ -18,8 +18,10 @@ from pathlib import Path
 import certifi
 from websockets.asyncio.client import connect
 if __package__:
+    from .shared_clips import sync_clips
     from .updater import find_update, prepare_update, launch_installer
 else:
+    from shared_clips import sync_clips
     from updater import find_update, prepare_update, launch_installer
 
 
@@ -37,6 +39,7 @@ def application_directory():
 
 
 APP_DIR = application_directory()
+SHARED_CLIPS_DIR = APP_DIR / "sharedclips"
 CONFIG_PATH = APP_DIR / "relay-config.json"
 FILES_DIR = APP_DIR / "Files"
 YTDLP_PATH = FILES_DIR / "yt-dlp.exe"
@@ -567,7 +570,16 @@ class RelayWindow:
         ttk.Button(buttons, text="Refresh files", command=self.refresh_files).pack(side="left", padx=8)
         ttk.Button(buttons, text="Stop all clips", command=self.stop).pack(side="left")
         ttk.Label(right, textvariable=self.folder, wraplength=440).pack(anchor="w", pady=8)
-        self.listbox = tk.Listbox(right, exportselection=False)
+        ttk.Button(buttons, text="Sync clips", command=self.sync_shared).pack(side="left", padx=8)
+        self.sync_running = False
+        self.sort_column = "name"
+        self.sort_reverse = False
+        self.clip_origins = {}
+        self.listbox = ttk.Treeview(right, columns=("name", "shared"), show="headings", selectmode="browse")
+        self.listbox.heading("name", text="Name", command=lambda: self.sort_clips("name"))
+        self.listbox.heading("shared", text="Shared", command=lambda: self.sort_clips("shared"))
+        self.listbox.column("name", width=270)
+        self.listbox.column("shared", width=80, stretch=False)
         clip_scroll = ttk.Scrollbar(right, orient="vertical", command=self.listbox.yview)
         self.listbox.configure(yscrollcommand=clip_scroll.set)
         clip_scroll.pack(side="right", fill="y")
@@ -702,7 +714,12 @@ class RelayWindow:
         self.status.set("Scanning audio files…")
         def scan():
             files = scan_audio_folder(folder) if folder else {}
-            self.agent.events.put({"library": files, "generation": generation})
+            origins = {key: "Local" for key in files}
+            SHARED_CLIPS_DIR.mkdir(parents=True, exist_ok=True)
+            shared = scan_audio_folder(str(SHARED_CLIPS_DIR))
+            files.update(shared)
+            origins.update({key: "Shared" for key in shared})
+            self.agent.events.put({"library": files, "origins": origins, "generation": generation})
         threading.Thread(target=scan, daemon=True).start()
 
     def send(self, payload):
@@ -735,26 +752,53 @@ class RelayWindow:
             self.send({"type": "music_control", "guild_id": guild_id, "action": action})
             self.refresh_music()
 
+    def sync_shared(self):
+        if self.sync_running:
+            return
+        self.sync_running = True
+        self.status.set("Syncing shared clips…")
+        def worker():
+            try:
+                up, down, conflicts = sync_clips(SHARED_CLIPS_DIR, self.config, AUDIO_EXTENSIONS, is_playable_audio)
+                message = f"Shared sync: uploaded {up}, downloaded {down}."
+                if conflicts:
+                    message += " Rename conflicting/oversized clips: " + ", ".join(conflicts)
+                self.agent.events.put({"sync_done": True, "status": message})
+            except Exception as exc:
+                self.agent.events.put({"sync_done": True, "error": clean_error(exc)})
+        threading.Thread(target=worker, daemon=True).start()
+
+    def sort_clips(self, column):
+        self.sort_reverse = not self.sort_reverse if self.sort_column == column else False
+        self.sort_column = column
+        self.render_clips()
+
+    def render_clips(self):
+        ids = list(self.agent.local_files)
+        if self.sort_column == "shared":
+            first = "Shared" if self.sort_reverse else "Local"
+            ids.sort(key=lambda key: (self.clip_origins[key] != first, self.agent.local_files[key].stem.casefold()))
+        else:
+            ids.sort(key=lambda key: self.agent.local_files[key].stem.casefold(), reverse=self.sort_reverse)
+        self.file_ids = ids
+        self.listbox.delete(*self.listbox.get_children())
+        for key in ids:
+            self.listbox.insert("", "end", iid=key, values=(self.agent.local_files[key].stem, self.clip_origins[key]))
+
     def clip_mouse_down(self, event):
-        self.clip_pressed_index = self.listbox.nearest(event.y) if self.file_ids else None
+        self.clip_pressed_index = self.listbox.identify_row(event.y) if self.listbox.identify_region(event.x, event.y) == "cell" else None
 
     def play_selected(self, event):
-        # nearest() alone returns the last row even below the list's contents.
-        if event.widget is not self.listbox or not self.file_ids:
-            return
-        index = self.listbox.nearest(event.y)
-        pressed_index = self.clip_pressed_index
+        pressed = self.clip_pressed_index
         self.clip_pressed_index = None
-        if pressed_index != index:
+        if event.widget is not self.listbox or self.listbox.identify_region(event.x, event.y) != "cell":
             return
-        bounds = self.listbox.bbox(index)
-        if bounds is None or not (bounds[0] <= event.x < bounds[0] + bounds[2]
-                                  and bounds[1] <= event.y < bounds[1] + bounds[3]):
+        file_id = self.listbox.identify_row(event.y)
+        if not file_id or pressed != file_id or self.listbox.identify_column(event.x) != "#1":
             return
         guild_id = self.target_id()
         if guild_id is None:
             return
-        file_id = self.file_ids[index]
         self.status.set("Starting clip " + self.agent.local_files[file_id].name)
         self.send({"type": "local_play", "guild_id": guild_id, "file_id": file_id,
                    "title": self.agent.local_files[file_id].name})
@@ -782,13 +826,14 @@ class RelayWindow:
                     self.update_idle_since = None
             if event.get("import_done") and event.get("folder") == self.folder.get():
                 self.refresh_files()
+            if event.get("sync_done"):
+                self.sync_running = False
+                self.refresh_files()
             if "library" in event and event["generation"] == self.scan_generation:
                 files = event["library"]
                 self.agent.local_files = files
-                self.file_ids = list(files)
-                self.listbox.delete(0, tk.END)
-                for path in files.values():
-                    self.listbox.insert(tk.END, path.stem)
+                self.clip_origins = event["origins"]
+                self.render_clips()
                 self.status.set(f"Loaded {len(files)} valid audio files.")
             if "targets" in event:
                 previous = self.destination.get()
