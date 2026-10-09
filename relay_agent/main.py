@@ -542,8 +542,11 @@ class RelayWindow:
         ttk.Button(music_controls, text="Next", command=lambda: self.music_control("next")).pack(side="left")
         self.music_status = tk.StringVar(value="No music playing")
         ttk.Label(left, textvariable=self.music_status, wraplength=440).pack(anchor="w", pady=8)
-        self.queue_view = ttk.Treeview(left, columns=("song",), show="headings", selectmode="none")
+        self.queue_view = ttk.Treeview(left, columns=("song",), show="headings", selectmode="browse")
         self.queue_view.heading("song", text="Current song and queue")
+        self.queue_pressed = None
+        self.queue_view.bind("<ButtonPress-1>", self.song_mouse_down)
+        self.queue_view.bind("<ButtonRelease-1>", self.song_selected)
         self.queue_view.column("song", width=400)
         self.queue_view.tag_configure("current", background="#dceeff", foreground="#14467a", font=("Segoe UI", 10, "bold"))
         queue_scroll = ttk.Scrollbar(left, orient="vertical", command=self.queue_view.yview)
@@ -585,8 +588,9 @@ class RelayWindow:
         self.update_button = ttk.Button(update_bar, text="Check for updates",
                                        command=lambda: self.check_updates(manual=True))
         self.update_button.pack(side="left", padx=8)
-        ttk.Button(update_bar, text="Install update now", command=self.install_update_now).pack(side="left")
-        ttk.Label(update_bar, text=f"Relay build {RELAY_BUILD}").pack(side="right")
+        self.install_button = ttk.Button(update_bar, text="Install update now", command=self.install_update_now, state="disabled")
+        self.install_button.pack(side="left")
+        ttk.Label(update_bar, text=f"RunsFormingMusic v1.{RELAY_BUILD}").pack(side="right")
         self.update_check_running = False
         self.pending_update = None
         self.next_update_check = 0
@@ -637,10 +641,12 @@ class RelayWindow:
             self.pending_update = (stage, True)
             self.update_idle_since = time.monotonic() - 30
         else:
-            self.check_updates(manual=True)
+            self.install_button.configure(state="disabled")
 
     def poll_updates(self):
         now = time.monotonic()
+        if hasattr(self, "install_button"):
+            self.install_button.configure(state="normal" if self.pending_update else "disabled")
         if self.pending_update is not None:
             stage, manual = self.pending_update
             if not manual and not self.auto_update.get():
@@ -781,6 +787,21 @@ class RelayWindow:
         for key in ids:
             self.listbox.insert("", "end", iid=key, values=(self.agent.local_files[key].stem, self.clip_origins[key]))
 
+    def song_mouse_down(self, event):
+        self.queue_pressed = self.queue_view.identify_row(event.y) if self.queue_view.identify_region(event.x, event.y) == "cell" else None
+
+    def song_selected(self, event):
+        pressed = self.queue_pressed
+        self.queue_pressed = None
+        if event.widget is not self.queue_view or self.queue_view.identify_region(event.x, event.y) != "cell":
+            return
+        track_id = self.queue_view.identify_row(event.y)
+        if not track_id or track_id != pressed or not self.last_music or "playlist" not in self.last_music:
+            return
+        guild_id = self.target_id()
+        if guild_id is not None:
+            self.send({"type": "music_control", "guild_id": guild_id, "action": "select", "track_id": track_id})
+
     def clip_mouse_down(self, event):
         self.clip_pressed_index = self.listbox.identify_row(event.y) if self.listbox.identify_region(event.x, event.y) == "cell" else None
 
@@ -830,6 +851,7 @@ class RelayWindow:
                 self.update_check_running = False
                 self.update_button.configure(state="normal")
                 if event.get("update_stage") is not None:
+                    self.install_button.configure(state="normal")
                     self.pending_update = (event["update_stage"], event["update_manual"])
                     self.update_idle_since = None
             if event.get("import_done") and event.get("folder") == self.folder.get():
@@ -860,11 +882,16 @@ class RelayWindow:
                     if music != self.last_music:
                         self.last_music = music
                         self.queue_view.delete(*self.queue_view.get_children())
-                        if music["current"]:
-                            label = "Paused" if music["paused"] else "Playing"
-                            self.queue_view.insert("", "end", values=(label + ": " + music["current"],), tags=("current",))
-                        for number, title in enumerate(music["queue"], 1):
-                            self.queue_view.insert("", "end", values=(f"{number}. {title}",))
+                        playlist = music.get("playlist")
+                        if playlist is not None:
+                            for song in playlist:
+                                label = ("Paused: " if music["paused"] else "Playing: ") if song["current"] else ""
+                                self.queue_view.insert("", "end", iid=song["id"], values=(label + song["title"],), tags=("current",) if song["current"] else ())
+                        else:
+                            if music["current"]:
+                                self.queue_view.insert("", "end", values=(music["current"],), tags=("current",))
+                            for number, title in enumerate(music["queue"], 1):
+                                self.queue_view.insert("", "end", values=(f"{number}. {title}",))
                         self.music_status.set("Paused" if music["paused"] else ("Playing" if music["current"] else "No music playing"))
                         self.toggle_button.configure(text="Play" if music["paused"] or not music["current"] else "Pause")
                         self.previous_button.configure(state="normal" if music["has_previous"] else "disabled")

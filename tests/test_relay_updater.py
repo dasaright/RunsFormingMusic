@@ -146,3 +146,21 @@ class ForceUpdateTests(UpdateWindowTests):
             window.poll_updates()
         install.assert_called_once()
         window.close.assert_called_once()
+
+class InstallButtonTests(UpdateWindowTests):
+    def test_no_pending_update_disables_install(self):
+        from unittest.mock import Mock
+        window=self.window()
+        window.install_button=Mock()
+        window.pending_update=None
+        window.next_update_check=float('inf')
+        window.poll_updates()
+        window.install_button.configure.assert_called_with(state='disabled')
+
+    def test_downloaded_update_enables_install(self):
+        from unittest.mock import Mock
+        window=self.window()
+        window.install_button=Mock()
+        window.update_idle_since=None
+        window.poll_updates()
+        window.install_button.configure.assert_called_with(state='normal')

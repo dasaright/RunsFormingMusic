@@ -69,3 +69,16 @@ class SortingTests(unittest.TestCase):
         self.assertEqual(window.file_ids, ['2','1','3'])
         window.sort_clips('shared')
         self.assertEqual(window.file_ids, ['3','2','1'])
+
+class SongClickTests(unittest.TestCase):
+    def test_song_click_sends_stable_song_id(self):
+        window=RelayWindow.__new__(RelayWindow)
+        window.queue_view=Mock()
+        window.queue_view.identify_row.return_value='song-id'
+        window.queue_view.identify_region.return_value='cell'
+        window.queue_pressed='song-id'
+        window.last_music={'playlist':[]}
+        window.target_id=Mock(return_value='1')
+        window.send=Mock()
+        window.song_selected(SimpleNamespace(widget=window.queue_view,x=20,y=20))
+        window.send.assert_called_once_with({'type':'music_control','guild_id':'1','action':'select','track_id':'song-id'})
