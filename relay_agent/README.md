@@ -61,8 +61,7 @@ The relay opens a desktop window. Choose a folder to scan its audio files; the
 folder is remembered in relay-config.json. Empty or undecodable files are omitted.
 Use Refresh files after adding or removing files.
 
-Join a Discord voice channel and use `y!join` to connect the bot. In the relay
-window, click Refresh Discord and select that server/channel. A single click
+Join a Discord voice channel; your personal token finds it automatically. A single click
 on an audio file plays it immediately as a soundboard clip over the current music.
 The music and queue are preserved. Multiple clips can overlap (up to eight).
 Stop clips stops only clips. `y!pause` pauses music; `y!resume` or `y!play`
@@ -100,11 +99,10 @@ existing relay-config.json when replacing the program.
 
 ## Desktop controls
 
-Select your connected Discord destination at the top. The left panel shows
-YouTube music and the queue, with the current song highlighted. Pause/Play
+The YouTube Music tab shows music and the queue, with the current song highlighted. Pause/Play
 controls music only. Next advances the queue; Previous returns to the most
 recently played song and puts the interrupted song at the front of the queue.
-The right panel plays soundboard clips only when a file row is clicked.
+The Soundboard tab plays clips only when the filename is clicked.
 Stop all clips stops every active clip while preserving music. Clips do not
 post Now playing messages in Discord. The queue refreshes every two seconds.
 
@@ -144,7 +142,7 @@ trigger a new executable build.
 
 ## Shared clips
 
-The right pane lists your chosen local folder and the separate `sharedclips` folder beside the executable. Name sorts filenames; Shared toggles Local-first / Shared-first, alphabetically within each group. Click a filename to play. **Sync clips** uploads new files from `sharedclips` and downloads missing shared files. Local files are never uploaded. Put files into `sharedclips` to share them. Shared files are public in this repository. Sync adds files only; rename conflicts and keep clips under 20 MB. Updates preserve both folders.
+The Soundboard tab lists your chosen local folder and the separate `sharedclips` folder beside the executable. Name sorts filenames; Shared toggles checked-first / unchecked-first. Earlier sort choices remain as tie-breakers. Click a filename to play. **Sync clips** uploads new files from `sharedclips` and downloads missing shared files. Local files are never uploaded. Put files into `sharedclips` to share them. Shared files are public in this repository. Sync adds files only; rename conflicts and keep clips under 20 MB. Updates preserve both folders.
 
 Bot administrator: configure `SHARED_CLIPS_GITHUB_TOKEN` on Railway with a fine-grained GitHub token restricted to `dasaright/RunsFormingMusic`, Contents read/write. Approved relay tokens authorize sync. The GitHub token stays on the bot and is never distributed in the executable.
 
@@ -170,3 +168,8 @@ Each soundboard row has a Volume slider: centered 0% preserves original loudness
 Use the Label dropdown to choose a saved label or No label. Right-click a clip and choose Add Label to create and assign one. Change Label Color opens seven pastel color choices and updates the label cell for every clip with that label. Volume, labels, and colors are saved locally, including for shared clips; rename preserves settings. Only clicking the filename plays a clip.
 
 Shared displays ☑ for shared clips and ☐ for local clips. Name, Shared, and Label headers sort; click the current primary header again to reverse it. Clicking a different header makes it primary while retaining earlier columns as tie-breakers, with filenames as the final fallback. Shared starts with checked entries first. For example, Label then Shared sorts by checked status, label name, then filename. Embedded controls follow header resizing.
+
+### Tabbed desktop layout
+YouTube Music and Soundboard have separate tabs with full-width lists. There is no Discord destination picker: your personal token resolves the voice channel you are in for playback and controls, including when you move channels. Join voice, then click a clip or paste a YouTube link; the bot joins automatically for playback.
+
+Drag a soundboard column header onto another header to move it to that position. Column order is saved locally; sorting is separate from dragging, and only the Name column plays clips regardless of position. Volume and label controls track their columns after reorder or resizing.

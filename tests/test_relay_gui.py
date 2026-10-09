@@ -53,7 +53,7 @@ class ClipClickTests(unittest.TestCase):
     def test_file_row_click_plays_exact_file(self):
         window = self.window()
         window.play_selected(SimpleNamespace(widget=window.listbox, x=30, y=10))
-        window.send.assert_called_once_with({'type': 'local_play', 'guild_id': '1', 'file_id': 'clip', 'title': 'clip.mp3'})
+        window.send.assert_called_once_with({'type': 'local_play', 'guild_id': None, 'file_id': 'clip', 'title': 'clip.mp3'})
 
 
 class SortingTests(unittest.TestCase):
@@ -86,3 +86,65 @@ class SongClickTests(unittest.TestCase):
         window.send=Mock()
         window.song_selected(SimpleNamespace(widget=window.queue_view,x=20,y=20))
         window.send.assert_called_once_with({'type':'music_control','guild_id':'1','action':'select','track_id':'song-id'})
+
+class HeaderDragTests(unittest.TestCase):
+    def test_saved_order_validation_and_move_past_shared(self):
+        from relay_agent.main import clip_column_order, reordered_columns
+        order = clip_column_order(None)
+        self.assertEqual(reordered_columns(order, 'volume', 'shared'), ['name','shared','volume','label'])
+        self.assertEqual(clip_column_order(['name','name','volume','label']), order)
+
+    def test_drag_changes_order_without_sorting_or_playing(self):
+        window = RelayWindow.__new__(RelayWindow)
+        window.root = Mock(); window.save = Mock(); window.send = Mock(); window.sort_clips = Mock()
+        window.listbox = Mock(); window.config = {}; window.column_order = ['name','volume','shared','label']
+        window.header_drag = {'column':'volume','x':100,'moved':True}
+        window.listbox.identify_column.return_value = '#3'
+        window.play_selected(SimpleNamespace(widget=window.listbox,x=250,y=10))
+        self.assertEqual(window.config['clip_column_order'], ['name','shared','volume','label'])
+        window.sort_clips.assert_not_called(); window.send.assert_not_called()
+
+    def test_reordered_name_is_only_playable_column(self):
+        window = ClipClickTests().window()
+        window.column_order = ['shared','volume','label','name']
+        window.listbox.identify_column.return_value = '#1'
+        window.play_selected(SimpleNamespace(widget=window.listbox,x=30,y=10))
+        window.send.assert_not_called()
+        window.clip_pressed_index = 'clip'
+        window.listbox.identify_column.return_value = '#4'
+        window.play_selected(SimpleNamespace(widget=window.listbox,x=30,y=10))
+        window.send.assert_called_once()
+
+    def test_real_tabs_and_reordered_control_positions(self):
+        import tkinter as tk
+        from unittest.mock import patch
+        from relay_agent.main import create_root
+        try:
+            root = create_root()
+        except tk.TclError:
+            self.skipTest('Requires desktop display; Windows packaging CI runs this')
+        try:
+            with patch('threading.Thread.start'):
+                window = RelayWindow(root, {})
+            window.save = Mock(); window.send = Mock()
+            root.update()
+            self.assertEqual(len(window.notebook.tabs()), 2)
+            self.assertFalse(hasattr(window, 'destination'))
+            window.notebook.select(1)
+            window.agent.local_files = {'clip':Path('Test.mp3')}
+            window.clip_origins = {'clip':'Shared'}
+            window.render_clips(); root.update()
+            window.header_drag = {'column':'volume','x':100,'moved':True}
+            # Drop on the Shared header using its actual on-screen coordinate.
+            box = window.listbox.bbox('clip','shared')
+            window.play_selected(SimpleNamespace(widget=window.listbox,x=box[0]+box[2]//2,y=5))
+            root.update()
+            self.assertEqual(window.column_order, ['name','shared','volume','label'])
+            frame, label = window.clip_widgets['clip']
+            self.assertEqual(frame.winfo_x(), window.listbox.bbox('clip','volume')[0])
+            self.assertEqual(label.winfo_x(), window.listbox.bbox('clip','label')[0])
+            window.notebook.select(0); root.update()
+            window.notebook.select(1); root.update()
+            self.assertTrue(window.listbox.winfo_ismapped())
+        finally:
+            root.destroy()

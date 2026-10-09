@@ -69,6 +69,51 @@ def sorted_clip_ids(files, origins, settings, sort_keys):
     return ids
 
 
+CLIP_COLUMNS = ("name", "volume", "shared", "label")
+
+
+def clip_column_order(saved):
+    return list(saved) if isinstance(saved, (list, tuple)) and len(saved) == 4 and set(saved) == set(CLIP_COLUMNS) else list(CLIP_COLUMNS)
+
+
+def reordered_columns(order, source, target):
+    result = list(order)
+    if source in result and target in result and source != target:
+        old, new = result.index(source), result.index(target)
+        result.pop(old)
+        result.insert(new, source)
+    return result
+
+
+def style_relay(root):
+    root.configure(background="#f1f2f4")
+    style = ttk.Style(root)
+    style.theme_use("clam")
+    style.configure(".", font=("Segoe UI", 10), background="#f1f2f4", foreground="#20252b")
+    style.configure("TFrame", background="#f1f2f4")
+    style.configure("Card.TFrame", background="#ffffff")
+    style.configure("TLabel", background="#f1f2f4")
+    style.configure("Card.TLabel", background="#ffffff")
+    style.configure("Title.TLabel", font=("Segoe UI", 23, "bold"))
+    style.configure("Muted.TLabel", foreground="#7c838e", font=("Segoe UI", 9))
+    style.configure("CardMuted.TLabel", background="#ffffff", foreground="#7c838e", font=("Segoe UI", 9))
+    style.configure("Song.TLabel", background="#ffffff", font=("Segoe UI", 17, "bold"))
+    style.configure("TButton", background="#ffffff", borderwidth=0, padding=(16, 10), relief="flat")
+    style.map("TButton", background=[("active", "#e5e8ed")], foreground=[("disabled", "#a5abb5")])
+    style.configure("Primary.TButton", background="#24272c", foreground="#ffffff")
+    style.map("Primary.TButton", background=[("active", "#414650")], foreground=[("disabled", "#969ba4")])
+    style.configure("TNotebook", background="#f1f2f4", borderwidth=0, tabmargins=(0, 0, 0, 12))
+    style.configure("TNotebook.Tab", padding=(26, 12), font=("Segoe UI", 11, "bold"), background="#e7e9ed", borderwidth=0)
+    style.map("TNotebook.Tab", background=[("selected", "#ffffff")], foreground=[("selected", "#20252b"), ("!selected", "#7c838e")])
+    style.configure("Treeview", background="#ffffff", fieldbackground="#ffffff", foreground="#303640", rowheight=36, borderwidth=0)
+    style.configure("Treeview.Heading", background="#f7f8fa", foreground="#7c838e", font=("Segoe UI", 10, "bold"), padding=(12, 12), relief="flat")
+    style.map("Treeview", background=[("selected", "#e8edf5")], foreground=[("selected", "#20252b")])
+    style.configure("Clip.TFrame", background="#ffffff")
+    style.configure("Clip.TLabel", background="#ffffff", foreground="#7c838e", font=("Segoe UI", 9))
+    style.configure("TCheckbutton", background="#f1f2f4", padding=6)
+    style.configure("Horizontal.TScale", background="#ffffff", troughcolor="#e7e9ed", borderwidth=0)
+
+
 def clipboard_youtube_link(text):
     # Ignore unrelated clipboard text; submit only the first actual YouTube URL.
     pattern = r"https?://[^\s<>\"']+|(?:www\.)?(?:youtube\.com|youtu\.be)/[^\s<>\"']+"
@@ -637,36 +682,40 @@ class RelayWindow:
         self.config = config
         self.agent = RelayAgent(config)
         self.loop = asyncio.new_event_loop()
-        self.targets = []
         self.file_ids = []
         root.title("Runsforming Audio Relay")
-        root.geometry("1250x620")
-        root.minsize(800, 450)
+        root.geometry("1060x740")
+        root.minsize(820, 570)
+        style_relay(root)
         self.status = tk.StringVar(value="Connecting…")
         self.folder = tk.StringVar(value=config.get("mp3_folder", ""))
-        destination_bar = ttk.Frame(root)
-        destination_bar.pack(fill="x", padx=16, pady=12)
-        self.destination = ttk.Combobox(destination_bar, state="readonly", width=60)
-        self.destination.pack(side="left", fill="x", expand=True)
-        self.destination.bind("<<ComboboxSelected>>", lambda event: self.refresh_music())
-        ttk.Button(destination_bar, text="Refresh Discord", command=lambda: self.send({"type": "targets"})).pack(side="left", padx=8)
-        panes = ttk.Panedwindow(root, orient=tk.HORIZONTAL)
-        panes.pack(fill="both", expand=True, padx=16)
-        left, right = ttk.Frame(panes), ttk.Frame(panes)
-        panes.add(left, weight=1)
-        panes.add(right, weight=1)
-        ttk.Label(left, text="YouTube music", font=("Segoe UI", 14, "bold")).pack(anchor="w", pady=8)
-        music_controls = ttk.Frame(left)
+        header = ttk.Frame(root)
+        header.pack(fill="x", padx=28, pady=(24, 20))
+        ttk.Label(header, text="RunsForming Music", style="Title.TLabel").pack(side="left")
+        self.identity = tk.StringVar(value="Connecting your relay")
+        ttk.Label(header, textvariable=self.identity, style="Muted.TLabel").pack(side="right")
+        self.notebook = ttk.Notebook(root)
+        self.notebook.pack(fill="both", expand=True, padx=28)
+        left, right = ttk.Frame(self.notebook, padding=20), ttk.Frame(self.notebook, padding=20)
+        self.notebook.add(left, text="YouTube Music")
+        self.notebook.add(right, text="Soundboard")
+        self.notebook.bind("<<NotebookTabChanged>>", lambda event: self.root.after_idle(self.position_clip_widgets))
+        now_card = ttk.Frame(left, style="Card.TFrame", padding=22)
+        now_card.pack(fill="x", pady=(0, 16))
+        ttk.Label(now_card, text="NOW PLAYING", style="CardMuted.TLabel").pack(anchor="w")
+        self.current_song = tk.StringVar(value="Your next song starts here")
+        ttk.Label(now_card, textvariable=self.current_song, style="Song.TLabel", wraplength=850).pack(anchor="w", pady=(8, 4))
+        music_controls = ttk.Frame(now_card, style="Card.TFrame")
         music_controls.pack(fill="x", pady=8)
         self.previous_button = ttk.Button(music_controls, text="Previous", command=lambda: self.music_control("previous"))
         self.previous_button.pack(side="left")
-        self.toggle_button = ttk.Button(music_controls, text="Pause / Play", command=lambda: self.music_control("toggle"))
+        self.toggle_button = ttk.Button(music_controls, text="Pause / Play", style="Primary.TButton", command=lambda: self.music_control("toggle"))
         self.toggle_button.pack(side="left", padx=8)
         ttk.Button(music_controls, text="Next", command=lambda: self.music_control("next")).pack(side="left")
         self.music_status = tk.StringVar(value="No music playing")
-        ttk.Label(left, textvariable=self.music_status, wraplength=440).pack(anchor="w", pady=8)
+        ttk.Label(now_card, textvariable=self.music_status, style="CardMuted.TLabel").pack(anchor="w", pady=4)
         self.queue_view = ttk.Treeview(left, columns=("song",), show="headings", selectmode="browse")
-        self.queue_view.heading("song", text="Current song and queue")
+        self.queue_view.heading("song", text="Your music queue")
         self.queue_pressed = None
         self.queue_view.bind("<ButtonPress-1>", self.song_mouse_down)
         self.queue_view.bind("<ButtonRelease-1>", self.song_selected)
@@ -681,7 +730,8 @@ class RelayWindow:
         self.queue_view.pack(fill="both", expand=True, padx=(0, 12))
         root.bind("<Control-v>", self.paste_youtube_link)
         root.bind("<Control-V>", self.paste_youtube_link)
-        ttk.Label(right, text="Soundboard clips", font=("Segoe UI", 14, "bold")).pack(anchor="w", pady=8)
+        ttk.Label(right, text="Your soundboard", font=("Segoe UI", 17, "bold")).pack(anchor="w")
+        ttk.Label(right, text="Click a filename to play • Right-click to manage • Drag headers to arrange columns", style="Muted.TLabel").pack(anchor="w", pady=(4, 12))
         buttons = ttk.Frame(right)
         buttons.pack(fill="x", pady=8)
         ttk.Button(buttons, text="Refresh files", command=self.refresh_files).pack(side="left", padx=8)
@@ -689,7 +739,7 @@ class RelayWindow:
         folder_bar = ttk.Frame(right)
         folder_bar.pack(fill="x", pady=8)
         ttk.Button(folder_bar, text="Change folder", command=self.choose_folder).pack(side="right", padx=(8, 0))
-        ttk.Label(folder_bar, textvariable=self.folder, wraplength=300).pack(side="left", fill="x", expand=True)
+        ttk.Label(folder_bar, textvariable=self.folder, wraplength=720, style="Muted.TLabel").pack(side="left", fill="x", expand=True)
         ttk.Button(buttons, text="Sync clips", command=self.sync_shared).pack(side="left", padx=8)
         self.sync_running = False
         self.sort_keys = [("name", False)]
@@ -697,14 +747,17 @@ class RelayWindow:
         self.sort_reverse = False
         self.clip_origins = {}
         self.listbox = ttk.Treeview(right, columns=("name", "volume", "shared", "label"), show="headings", selectmode="browse")
-        self.listbox.heading("name", text="Name", command=lambda: self.sort_clips("name"))
-        self.listbox.heading("shared", text="Shared", command=lambda: self.sort_clips("shared"))
-        self.listbox.column("name", width=190, minwidth=90)
+        self.listbox.heading("name", text="Name")
+        self.listbox.heading("shared", text="Shared")
+        self.listbox.column("name", width=400, minwidth=120)
         self.listbox.heading("volume", text="Volume")
         self.listbox.column("volume", width=150, minwidth=150, stretch=False)
-        self.listbox.heading("label", text="Label", command=lambda: self.sort_clips("label"))
-        self.listbox.column("label", width=120, minwidth=90)
+        self.listbox.heading("label", text="Label")
+        self.listbox.column("label", width=200, minwidth=100)
         self.clip_widgets = {}
+        self.header_drag = None
+        self.column_order = clip_column_order(config.get("clip_column_order"))
+        self.listbox.configure(displaycolumns=self.column_order)
         self.listbox.bind("<Configure>", lambda event: self.position_clip_widgets())
         self.listbox.column("shared", width=80, stretch=False, anchor="center")
         clip_scroll = ttk.Scrollbar(right, orient="vertical", command=self.scroll_clips)
@@ -714,7 +767,7 @@ class RelayWindow:
         self.clip_pressed_index = None
         self.listbox.bind("<ButtonPress-1>", self.clip_mouse_down)
         self.listbox.bind("<ButtonRelease-1>", self.play_selected)
-        self.listbox.bind("<B1-Motion>", lambda event: self.root.after_idle(self.position_clip_widgets), add="+")
+        self.listbox.bind("<B1-Motion>", self.clip_mouse_move, add="+")
         self.listbox.bind("<ButtonRelease-1>", lambda event: self.root.after_idle(self.position_clip_widgets), add="+")
         self.clip_menu = tk.Menu(root, tearoff=False)
         self.clip_menu.add_command(label="Rename", command=self.rename_clip)
@@ -726,8 +779,8 @@ class RelayWindow:
         self.clip_menu.add_cascade(label="Change Label Color", menu=color_menu)
         self.context_clip_id = None
         self.listbox.bind("<Button-3>", self.clip_context_menu)
-        ttk.Label(root, textvariable=self.status, wraplength=960).pack(anchor="w", padx=16, pady=8)
-        ttk.Label(right, text="Drop audio files anywhere in this window to copy them here.", wraplength=440).pack(anchor="w", pady=6)
+        ttk.Label(root, textvariable=self.status, wraplength=1000, style="Muted.TLabel").pack(anchor="w", padx=28, pady=(14, 4))
+        ttk.Label(right, text="Drop audio files anywhere in this window to copy them to your local folder.", style="Muted.TLabel", wraplength=900).pack(anchor="w", pady=6)
         self.register_drop_targets(root)
         update_bar = ttk.Frame(root)
         update_bar.pack(fill="x", padx=16, pady=4)
@@ -894,22 +947,15 @@ class RelayWindow:
         future.add_done_callback(done)
 
     def target_id(self):
-        index = self.destination.current()
-        if index < 0:
-            self.status.set("Connect the bot using y!join, refresh Discord, then choose a destination.")
-            return None
-        return self.targets[index]["id"]
+        # The server resolves the personal token's current voice channel each time.
+        return None
 
     def refresh_music(self):
-        index = self.destination.current()
-        if 0 <= index < len(self.targets):
-            self.send({"type": "music_state", "guild_id": self.targets[index]["id"]})
+        self.send({"type": "music_state", "guild_id": None})
 
     def music_control(self, action):
-        guild_id = self.target_id()
-        if guild_id is not None:
-            self.send({"type": "music_control", "guild_id": guild_id, "action": action})
-            self.refresh_music()
+        self.send({"type": "music_control", "guild_id": None, "action": action})
+        self.refresh_music()
 
     def sync_shared(self):
         if self.sync_running or getattr(self, "editing_clips", set()):
@@ -975,8 +1021,8 @@ class RelayWindow:
                     widget.destroy()
                 continue
             if key not in self.clip_widgets:
-                frame = ttk.Frame(self.listbox)
-                text = ttk.Label(frame, width=6)
+                frame = ttk.Frame(self.listbox, style="Clip.TFrame")
+                text = ttk.Label(frame, width=6, style="Clip.TLabel")
                 text.pack(side="right")
                 scale = ttk.Scale(frame, from_=-100, to=100,
                                   command=lambda value, k=key, t=text: self.set_clip_volume(k, value, t))
@@ -1043,8 +1089,7 @@ class RelayWindow:
             return
         if url is None:
             return
-        index = self.destination.current()
-        guild_id = self.targets[index]["id"] if 0 <= index < len(self.targets) else None
+        guild_id = None
         self.status.set("Adding YouTube playlist…" if self.paste_playlist.get() else "Adding YouTube song…")
         self.send({"type": "music_enqueue", "guild_id": guild_id, "url": url,
                    "playlist": bool(self.paste_playlist.get())})
@@ -1062,8 +1107,7 @@ class RelayWindow:
         if not track_id or track_id != pressed or not self.last_music or "playlist" not in self.last_music:
             return
         guild_id = self.target_id()
-        if guild_id is not None:
-            self.send({"type": "music_control", "guild_id": guild_id, "action": "select", "track_id": track_id})
+        self.send({"type": "music_control", "guild_id": guild_id, "action": "select", "track_id": track_id})
 
     def clip_context_menu(self, event):
         self.clip_pressed_index = None
@@ -1134,10 +1178,47 @@ class RelayWindow:
                 self.agent.events.put({"clip_edit_done": file_id, "clip_edit_error": str(exc)})
         future.add_done_callback(done)
 
+    def clip_column_at(self, x):
+        display = self.listbox.identify_column(x)
+        try:
+            index = int(display[1:]) - 1
+            return getattr(self, "column_order", list(CLIP_COLUMNS))[index] if index >= 0 else None
+        except (ValueError, IndexError):
+            return None
+
     def clip_mouse_down(self, event):
-        self.clip_pressed_index = self.listbox.identify_row(event.y) if self.listbox.identify_region(event.x, event.y) == "cell" else None
+        region = self.listbox.identify_region(event.x, event.y)
+        self.header_drag = None
+        if region == "heading":
+            self.header_drag = {"column": self.clip_column_at(event.x), "x": event.x, "moved": False}
+            self.clip_pressed_index = None
+            return "break"
+        self.clip_pressed_index = self.listbox.identify_row(event.y) if region == "cell" else None
+
+    def clip_mouse_move(self, event):
+        drag = getattr(self, "header_drag", None)
+        if drag:
+            if abs(event.x - drag["x"]) > 8:
+                drag["moved"] = True
+                self.listbox.configure(cursor="fleur")
+            return "break"
+        self.root.after_idle(self.position_clip_widgets)
 
     def play_selected(self, event):
+        drag = getattr(self, "header_drag", None)
+        if drag:
+            self.header_drag = None
+            self.listbox.configure(cursor="")
+            if drag["moved"]:
+                target = self.clip_column_at(event.x)
+                self.column_order = reordered_columns(self.column_order, drag["column"], target)
+                self.listbox.configure(displaycolumns=self.column_order)
+                self.config["clip_column_order"] = self.column_order
+                self.save()
+                self.root.after_idle(self.position_clip_widgets)
+            elif drag["column"] in {"name", "shared", "label"}:
+                self.sort_clips(drag["column"])
+            return "break"
         pressed = self.clip_pressed_index
         self.clip_pressed_index = None
         if event.widget is not self.listbox or self.listbox.identify_region(event.x, event.y) != "cell":
@@ -1145,18 +1226,16 @@ class RelayWindow:
         file_id = self.listbox.identify_row(event.y)
         if file_id in getattr(self, "editing_clips", set()):
             return
-        if not file_id or pressed != file_id or self.listbox.identify_column(event.x) != "#1":
+        if not file_id or pressed != file_id or self.clip_column_at(event.x) != "name":
             return
-        index = self.destination.current()
-        guild_id = self.targets[index]["id"] if 0 <= index < len(self.targets) else None
+        guild_id = None
         self.status.set("Starting clip " + self.agent.local_files[file_id].name)
         self.send({"type": "local_play", "guild_id": guild_id, "file_id": file_id,
                    "title": self.agent.local_files[file_id].name})
 
     def stop(self):
         guild_id = self.target_id()
-        if guild_id is not None:
-            self.send({"type": "local_stop", "guild_id": guild_id})
+        self.send({"type": "local_stop", "guild_id": guild_id})
 
     def run_agent(self):
         asyncio.set_event_loop(self.loop)
@@ -1181,7 +1260,8 @@ class RelayWindow:
                     messagebox.showerror("Could not edit clip", event["clip_edit_error"], parent=self.root)
                 self.refresh_files()
             if event.get("relay_name"):
-                self.root.title("Runsforming Audio Relay — " + event["relay_name"])
+                self.root.title("RunsForming Music — " + event["relay_name"])
+                self.identity.set(event["relay_name"] + " • Personal relay")
                 self.save()
             if event.get("token_required"):
                 token = simpledialog.askstring("New relay token needed", "Token expired or invalid. Use !token in Discord, then paste your new token:", show="*", parent=self.root)
@@ -1211,40 +1291,28 @@ class RelayWindow:
                 self.clip_origins = event["origins"]
                 self.render_clips()
                 self.status.set(f"Loaded {len(files)} valid audio files.")
-            if "targets" in event:
-                previous = self.destination.get()
-                self.targets = event["targets"]
-                self.destination["values"] = [target["name"] for target in self.targets]
-                if previous in self.destination["values"]:
-                    self.destination.set(previous)
-                elif self.targets:
-                    self.destination.current(0)
-                else:
-                    self.destination.set("")
             if "music" in event:
-                index = self.destination.current()
-                if 0 <= index < len(self.targets) and str(event.get("guild_id")) == self.targets[index]["id"]:
-                    music = event["music"]
-                    if music != self.last_music:
-                        self.last_music = music
-                        self.queue_view.delete(*self.queue_view.get_children())
-                        playlist = music.get("playlist")
-                        if playlist is not None:
-                            for song in playlist:
-                                label = ("Paused: " if music["paused"] else "Playing: ") if song["current"] else ""
-                                self.queue_view.insert("", "end", iid=song["id"], values=(label + song["title"],), tags=("current",) if song["current"] else ())
-                        else:
-                            if music["current"]:
-                                self.queue_view.insert("", "end", values=(music["current"],), tags=("current",))
-                            for number, title in enumerate(music["queue"], 1):
-                                self.queue_view.insert("", "end", values=(f"{number}. {title}",))
-                        self.music_status.set("Paused" if music["paused"] else ("Playing" if music["current"] else "No music playing"))
-                        self.toggle_button.configure(text="Play" if music["paused"] or not music["current"] else "Pause")
-                        self.previous_button.configure(state="normal" if music["has_previous"] else "disabled")
+                music = event["music"]
+                self.current_song.set(music.get("current") or "Your next song starts here")
+                if music != self.last_music:
+                    self.last_music = music
+                    self.queue_view.delete(*self.queue_view.get_children())
+                    playlist = music.get("playlist")
+                    if playlist is not None:
+                        for song in playlist:
+                            label = ("Paused: " if music["paused"] else "Playing: ") if song["current"] else ""
+                            self.queue_view.insert("", "end", iid=song["id"], values=(label + song["title"],), tags=("current",) if song["current"] else ())
+                    else:
+                        if music["current"]:
+                            self.queue_view.insert("", "end", values=(music["current"],), tags=("current",))
+                        for number, title in enumerate(music["queue"], 1):
+                            self.queue_view.insert("", "end", values=(f"{number}. {title}",))
+                    self.music_status.set("Paused" if music["paused"] else ("Playing" if music["current"] else "No music playing"))
+                    self.toggle_button.configure(text="Play" if music["paused"] or not music["current"] else "Pause")
+                    self.previous_button.configure(state="normal" if music["has_previous"] else "disabled")
             self.status.set(event.get("error") or event.get("status") or self.status.get())
         if time.monotonic() >= self.next_music_refresh:
             self.next_music_refresh = time.monotonic() + 2
-            self.send({"type": "targets"})
             self.refresh_music()
         if not self.poll_updates():
             self.root.after(100, self.poll)

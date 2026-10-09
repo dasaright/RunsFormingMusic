@@ -27,4 +27,4 @@ class ClipboardTests(unittest.TestCase):
         window.save_paste_setting()
         self.assertTrue(window.config['paste_playlist'])
         window.paste_youtube_link()
-        window.send.assert_called_once_with({'type':'music_enqueue','guild_id':'1','url':'https://youtu.be/a','playlist':True})
+        window.send.assert_called_once_with({'type':'music_enqueue','guild_id':None,'url':'https://youtu.be/a','playlist':True})
