@@ -87,6 +87,12 @@ jobs:
             Select-Object -First 1
           Copy-Item $ffmpeg.FullName "dist/Files/ffmpeg.exe"
 
+      - name: Verify editing an actively playing file releases its lock
+        shell: pwsh
+        run: |
+          $env:TEST_FFMPEG_PATH = (Resolve-Path "dist/Files/ffmpeg.exe").Path
+          python -m unittest discover -s tests -p test_clip_files.py -v
+
       - name: Verify packaged executable and dependencies
         shell: pwsh
         run: |

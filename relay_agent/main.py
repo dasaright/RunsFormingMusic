@@ -161,6 +161,7 @@ class RelayAgent:
         self.stream_request_id = None
         self.local_files = {}
         self.clip_tasks = {}
+        self.clip_file_ids = {}
         self.playback_gate = asyncio.Event()
         self.playback_gate.set()
         self.events = queue.Queue()
@@ -355,11 +356,39 @@ class RelayAgent:
             for task in (pump_task, ytdlp_error_task, ffmpeg_error_task):
                 if task is not None and not task.done():
                     task.cancel()
+            await asyncio.gather(*(task for task in (pump_task, ytdlp_error_task, ffmpeg_error_task)
+                                   if task is not None), return_exceptions=True)
+            for process in (ffmpeg, ytdlp):
+                if process is not None:
+                    try:
+                        await asyncio.wait_for(process.communicate(), timeout=5)
+                    except (asyncio.TimeoutError, OSError):
+                        pass
             if url.startswith("local:"):
+                self.clip_file_ids.pop(request_id, None)
                 self.clip_tasks.pop(request_id, None)
             elif self.stream_request_id == request_id:
                 self.stream_task = None
                 self.stream_request_id = None
+
+    async def edit_clip_file(self, file_id, path, new_name=None):
+        for attempt in range(30):
+            tasks = [task for request_id, task in list(self.clip_tasks.items())
+                     if self.clip_file_ids.get(request_id) == file_id]
+            for task in tasks:
+                task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            try:
+                if new_name is None:
+                    await asyncio.to_thread(path.unlink)
+                    return "Deleted clip " + path.stem
+                target = await asyncio.to_thread(rename_soundboard_clip, path, new_name)
+                return "Renamed clip to " + target.stem
+            except OSError as exc:
+                if getattr(exc, "winerror", None) not in {32, 33} or attempt == 29:
+                    raise
+                await asyncio.sleep(0.1)
 
     async def handle_command(self, raw):
         try:
@@ -384,7 +413,19 @@ class RelayAgent:
                 if len(self.clip_tasks) >= 8:
                     await self.send_json({"type": "stream_error", "request_id": request_id, "error": "Too many soundboard clips."})
                 else:
-                    self.clip_tasks[request_id] = asyncio.create_task(self.stream(request_id, url))
+                    self.clip_file_ids[request_id] = url.removeprefix("local:")
+                    task = asyncio.create_task(self.stream(request_id, url))
+                    self.clip_tasks[request_id] = task
+                    def finished(_task):
+                        if self.clip_file_ids.pop(request_id, None) is not None:
+                            async def notify():
+                                try:
+                                    await self.send_json({"type": "stream_end", "request_id": request_id})
+                                except Exception:
+                                    pass
+                            asyncio.create_task(notify())
+                        self.clip_tasks.pop(request_id, None)
+                    task.add_done_callback(finished)
                 return
             if self.stream_task is not None:
                 await self.send_json({
@@ -891,6 +932,9 @@ class RelayWindow:
 
     def editable_clip(self):
         file_id = self.context_clip_id
+        if file_id in getattr(self, "editing_clips", set()):
+            self.status.set("This clip is already being edited.")
+            return None
         path = self.agent.local_files.get(file_id)
         if not path or not path.is_file():
             self.status.set("This clip is no longer available. Refreshing files.")
@@ -908,13 +952,7 @@ class RelayWindow:
         name = simpledialog.askstring("Rename clip", "New filename (audio extension is preserved):", initialvalue=path.stem, parent=self.root)
         if name is None:
             return
-        try:
-            target = rename_soundboard_clip(path, name)
-        except (ValueError, OSError) as exc:
-            messagebox.showerror("Could not rename clip", str(exc), parent=self.root)
-            return
-        self.refresh_files()
-        self.status.set("Renamed clip to " + target.stem)
+        self.start_clip_edit(path, name)
 
     def delete_clip(self):
         path = self.editable_clip()
@@ -926,13 +964,22 @@ class RelayWindow:
             prompt += "\nThis deletes your shared copy only. Sync can download it again."
         if not messagebox.askyesno("Delete clip", prompt, parent=self.root):
             return
-        try:
-            path.unlink()
-        except OSError as exc:
-            messagebox.showerror("Could not delete clip", str(exc), parent=self.root)
-            return
-        self.refresh_files()
-        self.status.set("Deleted clip " + path.stem)
+        self.start_clip_edit(path)
+
+    def start_clip_edit(self, path, new_name=None):
+        file_id = self.context_clip_id
+        if not hasattr(self, "editing_clips"):
+            self.editing_clips = set()
+        self.editing_clips.add(file_id)
+        self.status.set("Releasing clip audio before editing…")
+        future = asyncio.run_coroutine_threadsafe(self.agent.edit_clip_file(file_id, path, new_name), self.loop)
+        def done(result):
+            try:
+                status = result.result()
+                self.agent.events.put({"clip_edit_done": file_id, "status": status})
+            except Exception as exc:
+                self.agent.events.put({"clip_edit_done": file_id, "clip_edit_error": str(exc)})
+        future.add_done_callback(done)
 
     def clip_mouse_down(self, event):
         self.clip_pressed_index = self.listbox.identify_row(event.y) if self.listbox.identify_region(event.x, event.y) == "cell" else None
@@ -943,6 +990,8 @@ class RelayWindow:
         if event.widget is not self.listbox or self.listbox.identify_region(event.x, event.y) != "cell":
             return
         file_id = self.listbox.identify_row(event.y)
+        if file_id in getattr(self, "editing_clips", set()):
+            return
         if not file_id or pressed != file_id or self.listbox.identify_column(event.x) != "#1":
             return
         index = self.destination.current()
@@ -966,6 +1015,11 @@ class RelayWindow:
     def poll(self):
         while not self.agent.events.empty():
             event = self.agent.events.get_nowait()
+            if event.get("clip_edit_done"):
+                self.editing_clips.discard(event["clip_edit_done"])
+                if event.get("clip_edit_error"):
+                    messagebox.showerror("Could not edit clip", event["clip_edit_error"], parent=self.root)
+                self.refresh_files()
             if event.get("relay_name"):
                 self.root.title("Runsforming Audio Relay — " + event["relay_name"])
                 self.save()
