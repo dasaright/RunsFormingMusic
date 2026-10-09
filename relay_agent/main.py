@@ -12,7 +12,7 @@ import time
 import queue
 import hashlib
 import tkinter as tk
-from tkinter import filedialog, ttk, simpledialog
+from tkinter import filedialog, ttk, simpledialog, messagebox
 from pathlib import Path
 
 import certifi
@@ -47,6 +47,23 @@ def clipboard_youtube_link(text):
         if host in {"youtube.com", "youtu.be"} or host.endswith(".youtube.com"):
             return url
     return None
+
+
+def rename_soundboard_clip(path, name):
+    path = Path(path)
+    name = name.strip()
+    if name.lower().endswith(path.suffix.lower()):
+        name = name[:-len(path.suffix)]
+    if (not name or name.endswith((".", " ")) or any(ord(c) < 32 or c in '<>:"/\\|?*' for c in name)
+            or name.split('.')[0].upper() in {'CON', 'PRN', 'AUX', 'NUL', *[f'COM{i}' for i in range(1, 10)], *[f'LPT{i}' for i in range(1, 10)]}):
+        raise ValueError("Enter a valid filename without folder separators or reserved Windows names.")
+    target = path.with_name(name + path.suffix)
+    if target == path:
+        return path
+    if target.exists() and not target.samefile(path):
+        raise ValueError("A clip with that filename already exists.")
+    path.rename(target)
+    return target
 
 
 def application_directory():
@@ -579,10 +596,12 @@ class RelayWindow:
         ttk.Label(right, text="Soundboard clips", font=("Segoe UI", 14, "bold")).pack(anchor="w", pady=8)
         buttons = ttk.Frame(right)
         buttons.pack(fill="x", pady=8)
-        ttk.Button(buttons, text="Choose folder", command=self.choose_folder).pack(side="left")
         ttk.Button(buttons, text="Refresh files", command=self.refresh_files).pack(side="left", padx=8)
         ttk.Button(buttons, text="Stop all clips", command=self.stop).pack(side="left")
-        ttk.Label(right, textvariable=self.folder, wraplength=440).pack(anchor="w", pady=8)
+        folder_bar = ttk.Frame(right)
+        folder_bar.pack(fill="x", pady=8)
+        ttk.Button(folder_bar, text="Change folder", command=self.choose_folder).pack(side="right", padx=(8, 0))
+        ttk.Label(folder_bar, textvariable=self.folder, wraplength=300).pack(side="left", fill="x", expand=True)
         ttk.Button(buttons, text="Sync clips", command=self.sync_shared).pack(side="left", padx=8)
         self.sync_running = False
         self.sort_column = "name"
@@ -600,6 +619,11 @@ class RelayWindow:
         self.clip_pressed_index = None
         self.listbox.bind("<ButtonPress-1>", self.clip_mouse_down)
         self.listbox.bind("<ButtonRelease-1>", self.play_selected)
+        self.clip_menu = tk.Menu(root, tearoff=False)
+        self.clip_menu.add_command(label="Rename", command=self.rename_clip)
+        self.clip_menu.add_command(label="Delete", command=self.delete_clip)
+        self.context_clip_id = None
+        self.listbox.bind("<Button-3>", self.clip_context_menu)
         ttk.Label(root, textvariable=self.status, wraplength=960).pack(anchor="w", padx=16, pady=8)
         ttk.Label(right, text="Drop audio files anywhere in this window to copy them here.", wraplength=440).pack(anchor="w", pady=6)
         self.register_drop_targets(root)
@@ -850,6 +874,65 @@ class RelayWindow:
         guild_id = self.target_id()
         if guild_id is not None:
             self.send({"type": "music_control", "guild_id": guild_id, "action": "select", "track_id": track_id})
+
+    def clip_context_menu(self, event):
+        self.clip_pressed_index = None
+        file_id = self.listbox.identify_row(event.y)
+        if self.listbox.identify_region(event.x, event.y) != "cell" or file_id not in self.agent.local_files:
+            return
+        self.context_clip_id = file_id
+        self.listbox.selection_set(file_id)
+        self.listbox.focus(file_id)
+        try:
+            self.clip_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.clip_menu.grab_release()
+        return "break"
+
+    def editable_clip(self):
+        file_id = self.context_clip_id
+        path = self.agent.local_files.get(file_id)
+        if not path or not path.is_file():
+            self.status.set("This clip is no longer available. Refreshing files.")
+            self.refresh_files()
+            return None
+        if self.clip_origins.get(file_id) == "Shared" and self.sync_running:
+            self.status.set("Wait for shared clip sync to finish before editing shared files.")
+            return None
+        return path
+
+    def rename_clip(self):
+        path = self.editable_clip()
+        if path is None:
+            return
+        name = simpledialog.askstring("Rename clip", "New filename (audio extension is preserved):", initialvalue=path.stem, parent=self.root)
+        if name is None:
+            return
+        try:
+            target = rename_soundboard_clip(path, name)
+        except (ValueError, OSError) as exc:
+            messagebox.showerror("Could not rename clip", str(exc), parent=self.root)
+            return
+        self.refresh_files()
+        self.status.set("Renamed clip to " + target.stem)
+
+    def delete_clip(self):
+        path = self.editable_clip()
+        if path is None:
+            return
+        shared = self.clip_origins.get(self.context_clip_id) == "Shared"
+        prompt = f"Delete {path.name} from this PC?"
+        if shared:
+            prompt += "\nThis deletes your shared copy only. Sync can download it again."
+        if not messagebox.askyesno("Delete clip", prompt, parent=self.root):
+            return
+        try:
+            path.unlink()
+        except OSError as exc:
+            messagebox.showerror("Could not delete clip", str(exc), parent=self.root)
+            return
+        self.refresh_files()
+        self.status.set("Deleted clip " + path.stem)
 
     def clip_mouse_down(self, event):
         self.clip_pressed_index = self.listbox.identify_row(event.y) if self.listbox.identify_region(event.x, event.y) == "cell" else None
