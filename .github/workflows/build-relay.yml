@@ -1,0 +1,142 @@
+name: Build Windows Relay
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "relay_agent/**"
+      - ".github/workflows/build-relay.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-relay-release
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: relay_agent/requirements.txt
+
+      - name: Install relay build dependencies
+        run: python -m pip install -r relay_agent/requirements.txt
+
+      - name: Set relay build version
+        env:
+          RELAY_BUILD: ${{ github.run_number }}
+        run: >-
+          python -c "import os; from pathlib import Path;
+          p=Path('relay_agent/main.py');
+          p.write_text(p.read_text(encoding='utf-8').replace('RELAY_BUILD = 0','RELAY_BUILD = '+os.environ['RELAY_BUILD'],1),encoding='utf-8')"
+
+      - name: Verify public relay TLS on Windows
+        run: >-
+          python -c "import socket; from relay_agent.main import relay_ssl_context;
+          host='runsformingbot-production.up.railway.app';
+          sock=socket.create_connection((host,443),timeout=20);
+          tls=relay_ssl_context().wrap_socket(sock,server_hostname=host);
+          print('TLS verified; certificate expires',tls.getpeercert()['notAfter']);
+          tls.close()"
+
+      - name: Smoke test desktop panels
+        run: >-
+          python -c "import tkinter as tk; from unittest.mock import patch;
+          from relay_agent.main import RelayWindow, create_root;
+          root=create_root();
+          mock=patch('threading.Thread.start'); mock.start();
+          window=RelayWindow(root,{}); root.update();
+          assert window.queue_view.winfo_exists();
+          assert window.listbox.winfo_exists();
+          assert window.toggle_button.winfo_exists();
+          root.destroy(); mock.stop(); print('Desktop panels initialized')"
+
+      - name: Test relay and Windows installer
+        run: python -m unittest discover -s tests -v
+
+      - name: Build relay executable
+        run: >-
+          pyinstaller --clean --noconfirm --onefile --windowed --paths .
+          --collect-data certifi --collect-all tkinterdnd2 --name RunsformingRelay relay_agent/main.py
+
+      - name: Download current yt-dlp
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "dist/Files" | Out-Null
+          Invoke-WebRequest `
+            -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" `
+            -OutFile "dist/Files/yt-dlp.exe"
+
+      - name: Download FFmpeg essentials
+        shell: pwsh
+        run: |
+          Invoke-WebRequest `
+            -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" `
+            -OutFile "ffmpeg.zip"
+          Expand-Archive "ffmpeg.zip" -DestinationPath "ffmpeg-build"
+          $ffmpeg = Get-ChildItem "ffmpeg-build" -Recurse -Filter "ffmpeg.exe" |
+            Select-Object -First 1
+          Copy-Item $ffmpeg.FullName "dist/Files/ffmpeg.exe"
+
+      - name: Verify packaged executable and dependencies
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath (Resolve-Path "dist/RunsformingRelay.exe") -ArgumentList "--self-test" -PassThru
+          if (-not $process.WaitForExit(60000)) {
+            taskkill /PID $process.Id /T /F
+            Get-Content "build/RunsformingRelay/warn-RunsformingRelay.txt"
+            throw "Packaged relay self-test timed out"
+          }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) {
+            if (Test-Path "dist/Files/self-test-error.txt") { Get-Content "dist/Files/self-test-error.txt" }
+            throw "Packaged relay self-test failed"
+          }
+
+      - name: Package relay bundle
+        shell: pwsh
+        run: |
+          Copy-Item "relay_agent/README.md" "dist/README.md"
+          Compress-Archive "dist/*" "RunsformingRelay-Windows.zip"
+          $manifest = @{
+            schema = 1
+            build = [int]${{ github.run_number }}
+            sha256 = (Get-FileHash "RunsformingRelay-Windows.zip" -Algorithm SHA256).Hash.ToLower()
+          }
+          $manifest | ConvertTo-Json | Set-Content -Encoding utf8 "relay-update.json"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RunsformingRelay-Windows
+          path: RunsformingRelay-Windows.zip
+          retention-days: 30
+
+      - name: Publish relay release
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "relay-${{ github.run_number }}"
+          gh release create $tag "RunsformingRelay-Windows.zip" "relay-update.json" --target $env:GITHUB_SHA --title "Windows Relay build ${{ github.run_number }}" --notes "Portable Windows relay with automatic updates. Keep relay-config.json when upgrading." --draft
+          if ($LASTEXITCODE -ne 0) { throw "Could not create relay release" }
+          gh release edit $tag --draft=false --latest=true
+          if ($LASTEXITCODE -ne 0) { throw "Could not publish relay release" }
+
+      - name: Verify public automatic-update download
+        if: github.ref == 'refs/heads/main'
+        run: >-
+          python -c "import shutil; from relay_agent.main import RELAY_BUILD;
+          from relay_agent.updater import find_update,prepare_update;
+          update=find_update(RELAY_BUILD-1); assert update['build']==RELAY_BUILD;
+          stage=prepare_update(update); shutil.rmtree(stage);
+          print('Public update download, checksum, and file layout verified')"
