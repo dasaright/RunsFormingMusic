@@ -116,6 +116,7 @@ INSTALL_SCRIPT = r'''param(
     [string]$Stage,
     [string]$Target,
     [int]$ProcessToWait = 0,
+    [int]$ParentProcessToWait = 0,
     [switch]$NoRestart,
     [string]$ExecutableName = "RunsformingRelay.exe",
     [string]$RestartArgument = "",
@@ -126,6 +127,7 @@ New-Item -ItemType Directory -Force -Path (Join-Path $Target 'Files') | Out-Null
 Start-Transcript -Path (Join-Path $Target 'Files/update-install.log') -Force | Out-Null
 'Relay installer started.' | Set-Content -LiteralPath (Join-Path $Stage 'installer-ready')
 if ($ProcessToWait -gt 0) { Wait-Process -Id $ProcessToWait -Timeout 60 -ErrorAction SilentlyContinue }
+if ($ParentProcessToWait -gt 0) { Wait-Process -Id $ParentProcessToWait -Timeout 60 -ErrorAction SilentlyContinue }
 # Restart must unpack a fresh one-file runtime after the old runtime is removed.
 Get-ChildItem Env: | Where-Object { $_.Name -like '_PYI*' -or $_.Name -eq '_MEIPASS2' } | ForEach-Object { Remove-Item "Env:$($_.Name)" }
 $env:PYINSTALLER_RESET_ENVIRONMENT = '1'
@@ -161,8 +163,10 @@ for ($attempt = 0; $attempt -lt $MaxAttempts; $attempt++) {
         Write-Output $_
         foreach ($file in $files) {
             $old = Destination $file
-            if ($existed[$file]) { Copy-Item -LiteralPath (Join-Path $backup $file) -Destination $old -Force -ErrorAction SilentlyContinue }
-            else { Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue }
+            try {
+                if ($existed[$file]) { Copy-Item -LiteralPath (Join-Path $backup $file) -Destination $old -Force }
+                else { Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue }
+            } catch { Write-Output "Rollback retry: $_" }
         }
         if ($attempt -lt ($MaxAttempts - 1)) { Start-Sleep -Seconds 1 }
     }
@@ -230,9 +234,10 @@ def launch_installer(stage, target, restart_argument=''):
             process = subprocess.Popen([str(powershell), '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
                 '-File', str(script), '-Stage', str(stage), '-Target', str(target),
                 '-ExecutableName', executable, '-RestartArgument', restart_argument,
-                '-ProcessToWait', str(os.getpid())],
+                '-ProcessToWait', str(os.getpid()),
+                '-ParentProcessToWait', str(os.getppid() if frozen else 0)],
                 creationflags=subprocess.CREATE_NO_WINDOW,
-                env=installer_environment(), cwd=str(stage), close_fds=True,
+                env=installer_environment(), cwd=str(target), close_fds=True,
                 stdin=subprocess.DEVNULL, stdout=log, stderr=log)
     finally:
         if frozen:
