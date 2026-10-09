@@ -19,6 +19,7 @@ class ClipSettingsTests(unittest.TestCase):
         window.context_clip_id = "a"
         window.save = Mock()
         window.position_clip_widgets = Mock()
+        window.render_clips = Mock()
         window.change_label_color("Light Pink")
         self.assertEqual(window.config["clip_labels"]["Funny"], LABEL_COLORS["Light Pink"])
         self.assertEqual(window.config["clip_labels"]["Other"], "#ffffff")
@@ -50,6 +51,12 @@ class ClipSettingsTests(unittest.TestCase):
             self.assertEqual(label.cget("text"), "Test")
             scale = next(w for w in frame.winfo_children() if isinstance(w, ttk.Scale))
             self.assertEqual(scale.get(), 0)
+            window.listbox.column('name', width=300)
+            root.update()
+            window.position_clip_widgets()
+            root.update()
+            self.assertEqual(frame.winfo_x(), window.listbox.bbox('a', 'volume')[0])
+            self.assertEqual(label.winfo_x(), window.listbox.bbox('a', 'label')[0])
             scale.set(-100)
             root.update()
             self.assertEqual(window.clip_setting("a")["volume"], -100)
@@ -58,3 +65,10 @@ class ClipSettingsTests(unittest.TestCase):
             self.assertEqual(window.clip_setting("a")["volume"], 100)
         finally:
             root.destroy()
+
+    def test_layered_sort_shared_then_label_then_name(self):
+        from relay_agent.main import sorted_clip_ids
+        files = {k:Path(n+'.mp3') for k,n in [('a','Zulu'),('b','Apple'),('c','Banana'),('d','Local')]}
+        origins = {'a':'Shared','b':'Shared','c':'Shared','d':'Local'}
+        settings = {'a':{'label':'First'},'b':{'label':'Second'},'c':{'label':'First'}}
+        self.assertEqual(sorted_clip_ids(files, origins, settings, [('shared',False),('label',False),('name',False)]), ['c','a','b','d'])

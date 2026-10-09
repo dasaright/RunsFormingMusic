@@ -41,3 +41,23 @@ class SyncTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaises(ValueError):
                 sync_clips(directory, {'server_url':'ws://example.com/relay'}, {'.mp3'}, lambda p:True)
+
+    def test_sync_removes_retired_copy_without_resurrection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            (folder/'old.mp3').write_bytes(b'old')
+            (folder/'changed.mp3').write_bytes(b'my-new-content')
+            requests = []
+            def opening(req, **kwargs):
+                requests.append(req)
+                if req.method == 'PUT':
+                    self.assertTrue(req.full_url.endswith('/changed.mp3'))
+                    return Response(b'{}')
+                return Response(json.dumps({'files':[], 'changes':{
+                    'old.mp3':[{'sha':blob_sha(b'old'), 'new_name':None}],
+                    'changed.mp3':[{'sha':blob_sha(b'original'), 'new_name':None}]}}).encode())
+            with patch('relay_agent.shared_clips.urlopen', side_effect=opening):
+                sync_clips(folder, {'server_url':'wss://example.com/relay','relay_token':'test'}, {'.mp3'}, lambda p:True)
+            self.assertFalse((folder/'old.mp3').exists())
+            self.assertTrue((folder/'changed.mp3').exists())
+            self.assertEqual(len([r for r in requests if r.method == 'PUT']), 1)

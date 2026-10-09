@@ -65,12 +65,14 @@ class SortingTests(unittest.TestCase):
         window.clip_origins = {'1':'Local','2':'Local','3':'Shared'}
         window.clip_widgets = {}
         window.root = Mock()
+        window.config = {}
+        window.sort_keys = [('name', False)]
         window.sort_column = 'name'
         window.sort_reverse = False
         window.sort_clips('shared')
-        self.assertEqual(window.file_ids, ['2','1','3'])
-        window.sort_clips('shared')
         self.assertEqual(window.file_ids, ['3','2','1'])
+        window.sort_clips('shared')
+        self.assertEqual(window.file_ids, ['2','1','3'])
 
 class SongClickTests(unittest.TestCase):
     def test_song_click_sends_stable_song_id(self):

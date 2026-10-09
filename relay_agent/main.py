@@ -19,10 +19,10 @@ from pathlib import Path
 import certifi
 from websockets.asyncio.client import connect
 if __package__:
-    from .shared_clips import sync_clips
+    from .shared_clips import sync_clips, edit_shared_clip
     from .updater import find_update, prepare_update, launch_installer
 else:
-    from shared_clips import sync_clips
+    from shared_clips import sync_clips, edit_shared_clip
     from updater import find_update, prepare_update, launch_installer
 
 
@@ -56,6 +56,19 @@ def clip_gain(frame, adjustment):
     return samples.tobytes()
 
 
+def sorted_clip_ids(files, origins, settings, sort_keys):
+    ids = sorted(files, key=lambda key: files[key].stem.casefold())
+    for column, reverse in reversed(sort_keys):
+        if column == 'shared':
+            key = lambda ident: origins.get(ident) != 'Shared'
+        elif column == 'label':
+            key = lambda ident: settings.get(ident, {}).get('label', '').casefold()
+        else:
+            key = lambda ident: files[ident].stem.casefold()
+        ids.sort(key=key, reverse=reverse)
+    return ids
+
+
 def clipboard_youtube_link(text):
     # Ignore unrelated clipboard text; submit only the first actual YouTube URL.
     pattern = r"https?://[^\s<>\"']+|(?:www\.)?(?:youtube\.com|youtu\.be)/[^\s<>\"']+"
@@ -72,7 +85,7 @@ def clipboard_youtube_link(text):
     return None
 
 
-def rename_soundboard_clip(path, name):
+def soundboard_rename_target(path, name):
     path = Path(path)
     name = name.strip()
     if name.lower().endswith(path.suffix.lower()):
@@ -85,6 +98,12 @@ def rename_soundboard_clip(path, name):
         return path
     if target.exists() and not target.samefile(path):
         raise ValueError("A clip with that filename already exists.")
+    return target
+
+
+def rename_soundboard_clip(path, name):
+    path = Path(path)
+    target = soundboard_rename_target(path, name)
     path.rename(target)
     return target
 
@@ -491,6 +510,7 @@ class RelayAgent:
             hello = json.loads(raw_hello)
             if hello.get("type") != "hello_ok":
                 raise ConnectionError("Relay authentication failed.")
+            self.config["shared_owner"] = bool(hello.get("shared_owner", False))
             self.config["relay_name"] = hello.get("relay_name", "Discord relay")
             self.events.put({"relay_name": self.config["relay_name"], "status": "Connected as " + self.config["relay_name"]})
             await self.send_json({"type": "targets"})
@@ -672,6 +692,7 @@ class RelayWindow:
         ttk.Label(folder_bar, textvariable=self.folder, wraplength=300).pack(side="left", fill="x", expand=True)
         ttk.Button(buttons, text="Sync clips", command=self.sync_shared).pack(side="left", padx=8)
         self.sync_running = False
+        self.sort_keys = [("name", False)]
         self.sort_column = "name"
         self.sort_reverse = False
         self.clip_origins = {}
@@ -681,11 +702,11 @@ class RelayWindow:
         self.listbox.column("name", width=190, minwidth=90)
         self.listbox.heading("volume", text="Volume")
         self.listbox.column("volume", width=150, minwidth=150, stretch=False)
-        self.listbox.heading("label", text="Label")
+        self.listbox.heading("label", text="Label", command=lambda: self.sort_clips("label"))
         self.listbox.column("label", width=120, minwidth=90)
         self.clip_widgets = {}
         self.listbox.bind("<Configure>", lambda event: self.position_clip_widgets())
-        self.listbox.column("shared", width=80, stretch=False)
+        self.listbox.column("shared", width=80, stretch=False, anchor="center")
         clip_scroll = ttk.Scrollbar(right, orient="vertical", command=self.scroll_clips)
         self.listbox.configure(yscrollcommand=lambda *args: (clip_scroll.set(*args), self.root.after_idle(self.position_clip_widgets)))
         clip_scroll.pack(side="right", fill="y")
@@ -693,6 +714,8 @@ class RelayWindow:
         self.clip_pressed_index = None
         self.listbox.bind("<ButtonPress-1>", self.clip_mouse_down)
         self.listbox.bind("<ButtonRelease-1>", self.play_selected)
+        self.listbox.bind("<B1-Motion>", lambda event: self.root.after_idle(self.position_clip_widgets), add="+")
+        self.listbox.bind("<ButtonRelease-1>", lambda event: self.root.after_idle(self.position_clip_widgets), add="+")
         self.clip_menu = tk.Menu(root, tearoff=False)
         self.clip_menu.add_command(label="Rename", command=self.rename_clip)
         self.clip_menu.add_command(label="Delete", command=self.delete_clip)
@@ -889,7 +912,7 @@ class RelayWindow:
             self.refresh_music()
 
     def sync_shared(self):
-        if self.sync_running:
+        if self.sync_running or getattr(self, "editing_clips", set()):
             return
         self.sync_running = True
         self.status.set("Syncing shared clips…")
@@ -905,17 +928,14 @@ class RelayWindow:
         threading.Thread(target=worker, daemon=True).start()
 
     def sort_clips(self, column):
-        self.sort_reverse = not self.sort_reverse if self.sort_column == column else False
-        self.sort_column = column
+        keys = getattr(self, "sort_keys", [("name", False)])
+        reverse = not keys[0][1] if keys and keys[0][0] == column else False
+        self.sort_keys = [(column, reverse)] + [(c, r) for c, r in keys if c != column]
         self.render_clips()
 
     def render_clips(self):
-        ids = list(self.agent.local_files)
-        if self.sort_column == "shared":
-            first = "Shared" if self.sort_reverse else "Local"
-            ids.sort(key=lambda key: (self.clip_origins[key] != first, self.agent.local_files[key].stem.casefold()))
-        else:
-            ids.sort(key=lambda key: self.agent.local_files[key].stem.casefold(), reverse=self.sort_reverse)
+        ids = sorted_clip_ids(self.agent.local_files, self.clip_origins,
+                              self.config.get("clip_settings", {}), getattr(self, "sort_keys", [("name", False)]))
         self.file_ids = ids
         for widgets in self.clip_widgets.values():
             for widget in widgets:
@@ -923,7 +943,7 @@ class RelayWindow:
         self.clip_widgets.clear()
         self.listbox.delete(*self.listbox.get_children())
         for key in ids:
-            self.listbox.insert("", "end", iid=key, values=(self.agent.local_files[key].stem, "", self.clip_origins[key], ""))
+            self.listbox.insert("", "end", iid=key, values=(self.agent.local_files[key].stem, "", "☑" if self.clip_origins[key] == "Shared" else "☐", ""))
         self.root.after_idle(self.position_clip_widgets)
 
     def scroll_clips(self, *args):
@@ -983,7 +1003,7 @@ class RelayWindow:
     def set_clip_label(self, key, name):
         self.clip_setting(key)["label"] = name
         self.save()
-        self.position_clip_widgets()
+        self.render_clips()
 
     def add_label(self):
         name = simpledialog.askstring("Add Label", "Label name:", parent=self.root)
@@ -1083,7 +1103,7 @@ class RelayWindow:
         shared = self.clip_origins.get(self.context_clip_id) == "Shared"
         prompt = f"Delete {path.name} from this PC?"
         if shared:
-            prompt += "\nThis deletes your shared copy only. Sync can download it again."
+            prompt += "\nThis also deletes the GitHub shared file for everyone." if self.config.get("shared_owner") else "\nThis deletes your shared copy only. Sync can download it again."
         if not messagebox.askyesno("Delete clip", prompt, parent=self.root):
             return
         self.start_clip_edit(path)
@@ -1094,12 +1114,22 @@ class RelayWindow:
             self.editing_clips = set()
         self.editing_clips.add(file_id)
         self.status.set("Releasing clip audio before editing…")
-        future = asyncio.run_coroutine_threadsafe(self.agent.edit_clip_file(file_id, path, new_name), self.loop)
+        try:
+            target = soundboard_rename_target(path, new_name) if new_name is not None else None
+        except ValueError as exc:
+            self.editing_clips.discard(file_id)
+            messagebox.showerror("Could not edit clip", str(exc), parent=self.root)
+            return
+        async def edit():
+            if self.clip_origins.get(file_id) == "Shared" and self.config.get("shared_owner"):
+                await asyncio.to_thread(edit_shared_clip, self.config, path, target.name if target else None)
+            return await self.agent.edit_clip_file(file_id, path, new_name)
+        future = asyncio.run_coroutine_threadsafe(edit(), self.loop)
         def done(result):
             try:
                 status = result.result()
                 self.agent.events.put({"clip_edit_done": file_id, "status": status,
-                                       "renamed_path": str(path.with_name(new_name.strip() if new_name.lower().endswith(path.suffix.lower()) else new_name.strip() + path.suffix)) if new_name is not None else None})
+                                       "renamed_path": str(target) if target else None})
             except Exception as exc:
                 self.agent.events.put({"clip_edit_done": file_id, "clip_edit_error": str(exc)})
         future.add_done_callback(done)

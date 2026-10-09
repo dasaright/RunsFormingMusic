@@ -14,6 +14,26 @@ def blob_sha(data):
     return hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
 
 
+def edit_shared_clip(config, path, new_name=None):
+    server = urlsplit(config['server_url'])
+    if server.scheme not in ('wss', 'https'):
+        raise ValueError('Shared editing requires a secure relay URL.')
+    payload = {'sha': blob_sha(Path(path).read_bytes())}
+    if new_name is not None:
+        payload['new_name'] = new_name
+    req = Request('https://' + server.netloc + '/sharedclips/' + quote(Path(path).name, safe=''),
+                  data=json.dumps(payload).encode(), method='POST' if new_name is not None else 'DELETE',
+                  headers={'Authorization': 'Bearer ' + config['relay_token'], 'Content-Type': 'application/json'})
+    try:
+        with urlopen(req, timeout=90, context=ssl.create_default_context(cafile=certifi.where())) as response:
+            return json.loads(response.read())
+    except Exception as exc:
+        from urllib.error import HTTPError
+        if isinstance(exc, HTTPError):
+            raise ValueError(exc.read(4096).decode(errors='replace')) from None
+        raise
+
+
 def sync_clips(folder, config, extensions, validate):
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
@@ -30,7 +50,20 @@ def sync_clips(folder, config, extensions, validate):
             if len(content) > MAX_CLIP_BYTES:
                 raise ValueError('Shared clip exceeds 20 MB.')
             return content
-    remote = {f['name']: f for f in json.loads(request())['files']}
+    listing = json.loads(request())
+    # Owner edits retire the exact old content, not unrelated local files.
+    # Reconcile before uploads so stale copies never resurrect deleted names.
+    for name, changes in listing.get('changes', {}).items():
+        if Path(name).name != name or any(c in name for c in '/\\:'):
+            continue
+        path = folder / name
+        if not path.is_file():
+            continue
+        sha = blob_sha(path.read_bytes())
+        if not any(change['sha'] == sha for change in changes):
+            continue
+        path.unlink()
+    remote = {f['name']: f for f in listing['files']}
     uploaded = downloaded = 0
     conflicts = []
     for path in sorted(folder.iterdir(), key=lambda p: p.name.casefold()):
