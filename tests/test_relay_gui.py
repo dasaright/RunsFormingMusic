@@ -162,6 +162,13 @@ class HeaderDragTests(unittest.TestCase):
             self.assertEqual(frame.winfo_x(), window.listbox.bbox('clip','volume')[0])
             self.assertEqual(label.winfo_x(), window.listbox.bbox('clip','label')[0])
             window.notebook.select(0); root.update()
+            self.assertLess(window.favorites_view.winfo_rootx(), window.queue_view.winfo_rootx())
+            window.last_music = {'playlist': [{'id': 'test', 'title': 'Favorite song', 'url': 'https://youtu.be/abc'}]}
+            window.queue_context_id = 'test'
+            window.favorite_song()
+            self.assertEqual(len(window.favorites_view.get_children()), 1)
+            self.assertEqual(window.queue_menu.entrycget(0, 'label'), 'Favorite')
+            self.assertEqual(window.queue_menu.entrycget(1, 'label'), 'Remove from queue')
             window.notebook.select(1); root.update()
             self.assertTrue(window.listbox.winfo_ismapped())
         finally:

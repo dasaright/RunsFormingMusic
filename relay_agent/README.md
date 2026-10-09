@@ -190,3 +190,5 @@ Soundboard columns keep their widths when the window expands or the last column 
 Clip audio normalization is prepared in the background when the library loads at startup or refresh. Unchanged files reuse saved measurements. Soundboard sliders, label menus, and colors are preloaded for all clips and retained while scrolling.
 
 Soundboard volume sliders and colored labels use two canvas surfaces instead of a native Windows control for every row. Their preloaded graphics scroll together with the table, avoiding per-control repaint trails.
+
+YouTube Music has saved favorites/playlists on the left and the shared Discord queue on the right. Right-click a queue song to Favorite it or Remove from queue. Double-click a saved item to enqueue it; saved playlist links add up to 50 songs. Favorites are saved locally and retained across relay updates. Right-click a saved item to remove it from favorites. Removing the currently playing song advances music without stopping soundboard clips.

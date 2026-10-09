@@ -852,18 +852,44 @@ class RelayWindow:
         ttk.Button(music_controls, text="Next", command=lambda: self.music_control("next")).pack(side="left")
         self.music_status = tk.StringVar(value="No music playing")
         ttk.Label(now_card, textvariable=self.music_status, style="CardMuted.TLabel").pack(anchor="w", pady=4)
-        self.queue_view = ttk.Treeview(left, columns=("song",), show="headings", selectmode="browse")
+        music_split = ttk.Panedwindow(left, orient="horizontal")
+        music_split.pack(fill="both", expand=True)
+        saved_pane = ttk.Frame(music_split, padding=(0, 0, 16, 0))
+        queue_pane = ttk.Frame(music_split)
+        music_split.add(saved_pane, weight=1)
+        music_split.add(queue_pane, weight=2)
+        self.favorites_view = ttk.Treeview(saved_pane, columns=("song",), show="headings", selectmode="browse")
+        self.favorites_view.heading("song", text="Favorites / playlists")
+        self.favorites_view.column("song", width=270, minwidth=140)
+        saved_scroll = ttk.Scrollbar(saved_pane, orient="vertical", command=self.favorites_view.yview)
+        self.favorites_view.configure(yscrollcommand=saved_scroll.set)
+        saved_scroll.pack(side="right", fill="y")
+        ttk.Button(saved_pane, text="Save playlist link", command=self.save_playlist_link).pack(side="bottom", anchor="w", pady=8)
+        self.favorites_view.pack(fill="both", expand=True)
+        self.bind_smooth_scroll(self.favorites_view)
+        self.favorites_view.bind("<Double-Button-1>", self.play_favorite)
+        self.favorites_view.bind("<Button-3>", self.favorite_context_menu)
+        self.favorite_menu = themed_menu(root)
+        self.favorite_menu.add_command(label="Remove saved item", command=self.remove_favorite)
+        self.favorite_context_id = None
+        self.render_favorites()
+        self.queue_view = ttk.Treeview(queue_pane, columns=("song",), show="headings", selectmode="browse")
         self.queue_view.heading("song", text="Your music queue")
+        self.queue_view.bind("<Button-3>", self.song_context_menu)
+        self.queue_context_id = None
+        self.queue_menu = themed_menu(root)
+        self.queue_menu.add_command(label="Favorite", command=self.favorite_song)
+        self.queue_menu.add_command(label="Remove from queue", command=self.remove_queue_song)
         self.queue_pressed = None
         self.queue_view.bind("<ButtonPress-1>", self.song_mouse_down)
         self.queue_view.bind("<ButtonRelease-1>", self.song_selected)
         self.queue_view.column("song", width=400)
         self.queue_view.tag_configure("current", background="#dceeff", foreground="#14467a", font=("Segoe UI", 10, "bold"))
-        queue_scroll = ttk.Scrollbar(left, orient="vertical", command=self.queue_view.yview)
+        queue_scroll = ttk.Scrollbar(queue_pane, orient="vertical", command=self.queue_view.yview)
         self.queue_view.configure(yscrollcommand=queue_scroll.set)
         queue_scroll.pack(side="right", fill="y")
         self.paste_playlist = tk.BooleanVar(value=bool(config.get("paste_playlist", False)))
-        ttk.Checkbutton(left, text="Check to have links play playlists instead of single song",
+        ttk.Checkbutton(queue_pane, text="Check to have links play playlists instead of single song",
                         variable=self.paste_playlist, command=self.save_paste_setting).pack(side="bottom", anchor="w", pady=8)
         self.queue_view.pack(fill="both", expand=True, padx=(0, 12))
         root.bind("<Control-v>", self.paste_youtube_link)
@@ -1406,6 +1432,97 @@ class RelayWindow:
         self.send({"type": "music_enqueue", "guild_id": guild_id, "url": url,
                    "playlist": bool(self.paste_playlist.get())})
         return "break"
+
+    def render_favorites(self):
+        self.favorites_view.delete(*self.favorites_view.get_children())
+        self.favorite_items = {}
+        for item in self.config.get("music_favorites", []):
+            if not isinstance(item, dict) or not item.get("url"):
+                continue
+            key = hashlib.sha256(item["url"].encode()).hexdigest()[:24]
+            if key in self.favorite_items:
+                continue
+            self.favorite_items[key] = item
+            title = ("Playlist: " if item.get("playlist") else "") + item.get("title", item["url"])
+            self.favorites_view.insert("", "end", iid=key, values=(title,))
+
+    def save_music_favorite(self, item):
+        favorites = self.config.setdefault("music_favorites", [])
+        if not any(saved.get("url") == item["url"] for saved in favorites):
+            favorites.append(item)
+            self.save()
+            self.render_favorites()
+        self.status.set("Saved to favorites.")
+
+    def favorite_song(self):
+        track = next((track for track in (self.last_music or {}).get("playlist", [])
+                      if track["id"] == self.queue_context_id), None)
+        if not track or not track.get("url"):
+            self.status.set("Song link unavailable. Refresh the queue and try again.")
+            return
+        self.save_music_favorite({"url": track["url"], "title": track["title"], "playlist": False})
+
+    def song_context_menu(self, event):
+        self.queue_pressed = None
+        if self.queue_view.identify_region(event.x, event.y) != "cell":
+            return "break"
+        self.queue_context_id = self.queue_view.identify_row(event.y)
+        if not self.queue_context_id:
+            return "break"
+        self.queue_view.selection_set(self.queue_context_id)
+        try:
+            self.queue_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.queue_menu.grab_release()
+        return "break"
+
+    def remove_queue_song(self):
+        if self.queue_context_id:
+            self.send({"type": "music_control", "guild_id": None,
+                       "action": "remove", "track_id": self.queue_context_id})
+            self.refresh_music()
+
+    def play_favorite(self, event):
+        if self.favorites_view.identify_region(event.x, event.y) != "cell":
+            return "break"
+        key = self.favorites_view.identify_row(event.y)
+        item = self.favorite_items.get(key)
+        if item:
+            self.send({"type": "music_enqueue", "guild_id": None,
+                       "url": item["url"], "playlist": bool(item.get("playlist"))})
+        return "break"
+
+    def favorite_context_menu(self, event):
+        if self.favorites_view.identify_region(event.x, event.y) != "cell":
+            return "break"
+        self.favorite_context_id = self.favorites_view.identify_row(event.y)
+        if self.favorite_context_id:
+            self.favorites_view.selection_set(self.favorite_context_id)
+            try:
+                self.favorite_menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                self.favorite_menu.grab_release()
+        return "break"
+
+    def remove_favorite(self):
+        item = self.favorite_items.get(self.favorite_context_id)
+        if item:
+            self.config["music_favorites"] = [saved for saved in self.config.get("music_favorites", [])
+                                               if saved.get("url") != item["url"]]
+            self.save()
+            self.render_favorites()
+
+    def save_playlist_link(self):
+        text = simpledialog.askstring("Save playlist", "YouTube playlist URL:", parent=self.root)
+        if not text:
+            return
+        url = clipboard_youtube_link(text)
+        if not url or not re.search(r"[?&]list=[^&]+", url):
+            messagebox.showerror("Invalid playlist", "Enter a YouTube link containing a playlist.", parent=self.root)
+            return
+        title = simpledialog.askstring("Playlist name", "Name for this playlist:", parent=self.root)
+        if title and title.strip():
+            self.save_music_favorite({"url": url, "title": title.strip(), "playlist": True})
 
     def song_mouse_down(self, event):
         self.queue_pressed = self.queue_view.identify_row(event.y) if self.queue_view.identify_region(event.x, event.y) == "cell" else None
