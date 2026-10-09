@@ -19,6 +19,9 @@ class ClipClickTests(unittest.TestCase):
         window.file_ids = ['clip']
         window.clip_pressed_index = "clip"
         window.target_id = Mock(return_value='1')
+        window.destination = Mock()
+        window.destination.current.return_value = 0
+        window.targets = [{'id':'1'}]
         window.agent = SimpleNamespace(local_files={'clip': Path('clip.mp3')})
         window.status = Mock()
         window.send = Mock()

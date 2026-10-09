@@ -1,9 +1,7 @@
 import asyncio
 import json
 import os
-import secrets
 import shutil
-import socket
 import ssl
 import subprocess
 import sys
@@ -26,6 +24,7 @@ else:
 
 
 RELAY_BUILD = 0
+RELAY_URL = "wss://runsformingbot-production.up.railway.app/relay"
 PROTOCOL_VERSION = 1
 PCM_FRAME_BYTES = 3840
 MAX_TRACK_SECONDS = 6 * 60 * 60
@@ -47,30 +46,9 @@ FFMPEG_PATH = FILES_DIR / "ffmpeg.exe"
 
 
 def create_config():
-    print("Runsforming Audio Relay first-time setup")
-    server_url = input(
-        "Relay URL (example: wss://your-service.up.railway.app/relay): "
-    ).strip()
-    relay_token = input(
-        "Relay token supplied by the bot owner (leave blank to generate one): "
-    ).strip()
-    generated_token = not relay_token
-    if generated_token:
-        relay_token = secrets.token_urlsafe(32)
-    relay_name = input(
-        f"Relay name [{socket.gethostname()}]: "
-    ).strip() or socket.gethostname()
-    config = {
-        "server_url": server_url,
-        "relay_token": relay_token,
-        "relay_name": relay_name,
-        "cookies_file": "",
-    }
+    token = input("Relay token from !token in Discord: ").strip()
+    config = {"server_url": RELAY_URL, "relay_token": token, "relay_name": "Discord relay", "cookies_file": ""}
     CONFIG_PATH.write_text(json.dumps(config, indent=2), encoding="utf-8")
-    if generated_token:
-        print("\nGive the bot owner this Railway AUDIO_RELAY_TOKENS entry:")
-        print(json.dumps({relay_name: relay_token}))
-        print("Treat it like a password. The owner must add it before connecting.\n")
     return config
 
 
@@ -78,9 +56,8 @@ def load_config():
     if not CONFIG_PATH.is_file():
         return create_config()
     config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-    required = ("server_url", "relay_token", "relay_name")
-    if any(not str(config.get(key, "")).strip() for key in required):
-        raise ValueError(f"Complete the required fields in {CONFIG_PATH.name}.")
+    config["server_url"] = RELAY_URL
+    config.setdefault("relay_name", "Discord relay")
     return config
 
 
@@ -152,6 +129,8 @@ class RelayAgent:
         self.playback_gate = asyncio.Event()
         self.playback_gate.set()
         self.events = queue.Queue()
+        self.token_ready = asyncio.Event()
+        self.token_ready.set()
 
     async def send_json(self, payload):
         async with self.send_lock:
@@ -409,7 +388,8 @@ class RelayAgent:
             hello = json.loads(raw_hello)
             if hello.get("type") != "hello_ok":
                 raise ConnectionError("Relay authentication failed.")
-            self.events.put({"status": "Connected"})
+            self.config["relay_name"] = hello.get("relay_name", "Discord relay")
+            self.events.put({"relay_name": self.config["relay_name"], "status": "Connected as " + self.config["relay_name"]})
             await self.send_json({"type": "targets"})
             async for message in websocket:
                 if isinstance(message, str):
@@ -432,6 +412,13 @@ class RelayAgent:
                     await asyncio.gather(self.stream_task, return_exceptions=True)
                 self.websocket = None
                 self.events.put({"error": f"Disconnected: {clean_error(exc)}"})
+                close_frame = getattr(exc, "rcvd", None)
+                if close_frame is not None and close_frame.code == 4003:
+                    self.token_ready.clear()
+                    self.events.put({"token_required": True})
+                    await self.token_ready.wait()
+                    delay = 2
+                    continue
                 print(f"Reconnecting in {delay} seconds...")
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, 60)
@@ -598,6 +585,7 @@ class RelayWindow:
         self.update_button = ttk.Button(update_bar, text="Check for updates",
                                        command=lambda: self.check_updates(manual=True))
         self.update_button.pack(side="left", padx=8)
+        ttk.Button(update_bar, text="Install update now", command=self.install_update_now).pack(side="left")
         ttk.Label(update_bar, text=f"Relay build {RELAY_BUILD}").pack(side="right")
         self.update_check_running = False
         self.pending_update = None
@@ -643,6 +631,14 @@ class RelayWindow:
                     "status": "Update check failed; playback remains available. " + clean_error(exc)})
         threading.Thread(target=check, daemon=True).start()
 
+    def install_update_now(self):
+        if self.pending_update:
+            stage, _ = self.pending_update
+            self.pending_update = (stage, True)
+            self.update_idle_since = time.monotonic() - 30
+        else:
+            self.check_updates(manual=True)
+
     def poll_updates(self):
         now = time.monotonic()
         if self.pending_update is not None:
@@ -651,13 +647,13 @@ class RelayWindow:
                 self.pending_update = None
                 threading.Thread(target=lambda: shutil.rmtree(stage, ignore_errors=True), daemon=True).start()
                 return
-            busy = self.agent.stream_task is not None or bool(self.agent.clip_tasks)
-            busy = busy or bool(self.last_music and (self.last_music.get("current") or self.last_music.get("queue")))
+            busy = bool(self.agent.stream_task and not self.agent.stream_task.done()) or any(not task.done() for task in self.agent.clip_tasks.values())
+            busy = busy and not manual
             if busy:
                 self.update_idle_since = None
             elif self.update_idle_since is None:
                 self.update_idle_since = now
-            elif now - self.update_idle_since >= 30:
+            elif manual or now - self.update_idle_since >= 5:
                 try:
                     self.save()
                     launch_installer(stage, APP_DIR)
@@ -796,9 +792,8 @@ class RelayWindow:
         file_id = self.listbox.identify_row(event.y)
         if not file_id or pressed != file_id or self.listbox.identify_column(event.x) != "#1":
             return
-        guild_id = self.target_id()
-        if guild_id is None:
-            return
+        index = self.destination.current()
+        guild_id = self.targets[index]["id"] if 0 <= index < len(self.targets) else None
         self.status.set("Starting clip " + self.agent.local_files[file_id].name)
         self.send({"type": "local_play", "guild_id": guild_id, "file_id": file_id,
                    "title": self.agent.local_files[file_id].name})
@@ -818,6 +813,19 @@ class RelayWindow:
     def poll(self):
         while not self.agent.events.empty():
             event = self.agent.events.get_nowait()
+            if event.get("relay_name"):
+                self.root.title("Runsforming Audio Relay — " + event["relay_name"])
+                self.save()
+            if event.get("token_required"):
+                token = simpledialog.askstring("New relay token needed", "Token expired or invalid. Use !token in Discord, then paste your new token:", show="*", parent=self.root)
+                if token and token.strip():
+                    self.config["relay_token"] = token.strip()
+                    self.save()
+                    self.loop.call_soon_threadsafe(self.agent.token_ready.set)
+                else:
+                    self.status.set("Use !token in Discord, then restart the relay to enter the new token.")
+                    self.config["relay_token"] = ""
+                    self.save()
             if event.get("update_checked"):
                 self.update_check_running = False
                 self.update_button.configure(state="normal")
@@ -863,6 +871,7 @@ class RelayWindow:
             self.status.set(event.get("error") or event.get("status") or self.status.get())
         if time.monotonic() >= self.next_music_refresh:
             self.next_music_refresh = time.monotonic() + 2
+            self.send({"type": "targets"})
             self.refresh_music()
         if not self.poll_updates():
             self.root.after(100, self.poll)
@@ -882,14 +891,21 @@ def main():
         if CONFIG_PATH.is_file():
             config = load_config()
         else:
-            url = simpledialog.askstring("Setup", "Railway WebSocket URL:", parent=root)
             token = simpledialog.askstring("Setup", "Relay token:", show="*", parent=root)
-            if not url or not token:
+            if not token:
                 root.destroy()
                 return
-            config = {"server_url": url.strip(), "relay_token": token.strip(),
-                      "relay_name": socket.gethostname(), "cookies_file": "", "mp3_folder": ""}
+            config = {"server_url": RELAY_URL, "relay_token": token.strip(),
+                      "relay_name": "Discord relay", "cookies_file": "", "mp3_folder": ""}
             CONFIG_PATH.write_text(json.dumps(config, indent=2), encoding="utf-8")
+        if not config.get("relay_token"):
+            token = simpledialog.askstring("Setup", "Use !token in Discord, then paste your relay token:", show="*", parent=root)
+            if not token:
+                root.destroy()
+                return
+            config["relay_token"] = token.strip()
+        config["server_url"] = RELAY_URL
+        CONFIG_PATH.write_text(json.dumps(config, indent=2), encoding="utf-8")
         verify_tools()
         threading.Thread(target=update_ytdlp, daemon=True).start()
         root.deiconify()

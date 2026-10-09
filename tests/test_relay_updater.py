@@ -112,17 +112,18 @@ class UpdateWindowTests(unittest.TestCase):
         window.status = Mock()
         return window
 
-    def test_install_waits_while_music_or_queue_is_active(self):
+    def test_stale_remote_queue_does_not_block_install(self):
         window = self.window()
         window.last_music = {'current': None, 'queue': ['song']}
         with patch('relay_agent.main.launch_installer') as install:
             window.poll_updates()
-        install.assert_not_called()
-        self.assertIsNone(window.update_idle_since)
+        install.assert_called_once()
+        window.close.assert_called_once()
 
     def test_install_waits_while_clip_is_active(self):
         window = self.window()
-        window.agent.clip_tasks = {'clip': object()}
+        from unittest.mock import Mock
+        window.agent.clip_tasks = {'clip': Mock(done=lambda:False)}
         with patch('relay_agent.main.launch_installer') as install:
             window.poll_updates()
         install.assert_not_called()
@@ -134,3 +135,14 @@ class UpdateWindowTests(unittest.TestCase):
         install.assert_called_once()
         window.close.assert_called_once()
         window.save.assert_called_once()
+
+class ForceUpdateTests(UpdateWindowTests):
+    def test_manual_update_bypasses_active_clip(self):
+        from unittest.mock import Mock
+        window = self.window()
+        window.agent.clip_tasks = {'clip': Mock(done=lambda:False)}
+        window.pending_update = (Path('test-stage'), True)
+        with patch('relay_agent.main.launch_installer') as install:
+            window.poll_updates()
+        install.assert_called_once()
+        window.close.assert_called_once()
