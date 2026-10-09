@@ -1,0 +1,75 @@
+name: Retain latest three music releases
+
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/retain-releases.yml"]
+  release:
+    types: [published]
+  workflow_run:
+    workflows: ["Build Windows Relay"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: music-release-retention
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Keep the newest three published versions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+
+          repo = os.environ["GH_REPO"]
+
+          def api(path):
+              return json.loads(subprocess.check_output(["gh", "api", path], text=True))
+
+          def published_versions():
+              releases = []
+              page = 1
+              while True:
+                  batch = api(f"repos/{repo}/releases?per_page=100&page={page}")
+                  releases.extend(
+                      release for release in batch
+                      if not release["draft"] and re.fullmatch(r"relay-\d+", release["tag_name"])
+                  )
+                  if len(batch) < 100:
+                      break
+                  page += 1
+              return sorted(
+                  releases,
+                  key=lambda release: int(release["tag_name"].split("-")[1]),
+                  reverse=True,
+              )
+
+          releases = published_versions()
+          keep = releases[:3]
+          print("Keeping:", ", ".join(release["tag_name"] for release in keep), flush=True)
+          for release in releases[3:]:
+              print("Deleting release and assets:", release["tag_name"], flush=True)
+              subprocess.run(
+                  ["gh", "api", "--method", "DELETE", f"repos/{repo}/releases/{release['id']}"],
+                  check=True,
+              )
+          remaining = published_versions()
+          if [release["id"] for release in remaining] != [release["id"] for release in keep]:
+              raise RuntimeError("Release retention verification failed")
+          print("Verified: only the newest three published versions remain.", flush=True)
+          PY
