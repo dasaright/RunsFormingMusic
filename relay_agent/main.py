@@ -1273,6 +1273,7 @@ class RelayWindow:
         canvas.itemconfigure(text, text=f"{value:+d}%" if value else "0%")
 
     def canvas_clip_key(self, event):
+        # Canvas coordinates cover only the row body, never the table header.
         index = int((getattr(self, "clip_scroll_offset", 0) + event.y) // self.clip_row_height)
         return self.file_ids[index] if 0 <= index < len(self.file_ids) else None
 

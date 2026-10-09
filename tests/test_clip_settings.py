@@ -111,7 +111,10 @@ class ClipSettingsTests(unittest.TestCase):
             w.listbox.yview_moveto(.5)
             w.position_clip_widgets()
             root.update()
-            first = next(w.listbox.identify_row(y) for y in range(w.listbox.winfo_height()) if w.listbox.identify_row(y))
+            # identify_row extrapolates into the header; only inspect the body.
+            first = w.listbox.identify_row(w.clip_body_top + w.clip_row_height // 2)
+            box = w.listbox.bbox(first, 'label')
+            self.assertEqual(w.clip_canvases['label'].winfo_y(), box[1])
             event = SimpleNamespace(widget=w.clip_canvases['label'], y=9)
             self.assertEqual(w.canvas_clip_key(event), first)
         finally:
