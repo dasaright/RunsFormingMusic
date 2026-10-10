@@ -128,7 +128,11 @@ class DirectAudio:
                     process.wait()
                     process.stdout.close()
                 for stream in streams:
-                    stream.abort(); stream.close()
+                    for cleanup in (stream.abort, stream.close):
+                        try:
+                            cleanup()
+                        except Exception:
+                            pass
                 with self.lock:
                     self.clips.pop(marker, None)
         entry['thread'] = threading.Thread(target=worker, daemon=True)
@@ -151,10 +155,11 @@ class DirectAudio:
         self.stop_file()
         self.mic_stop.set()
         for stream in self.streams:
-            try:
-                stream.abort(); stream.close()
-            except Exception:
-                pass
+            for cleanup in (stream.abort, stream.close):
+                try:
+                    cleanup()
+                except Exception:
+                    pass
         self.streams = []
         if self.mic_thread:
             self.mic_thread.join(timeout=1)
