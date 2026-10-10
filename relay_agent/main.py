@@ -281,10 +281,9 @@ def style_relay(root):
         [("Graphite.Vertical.Scrollbar.thumb", {"sticky":"ns"})]})])
     style.configure("Vertical.TScrollbar", troughcolor="#14171c", bordercolor="#14171c",
                     lightcolor="#14171c", darkcolor="#14171c", relief="flat", borderwidth=0, width=10)
-    root.graphite_client = tk.PhotoImage(master=root, width=1, height=1)
-    root.graphite_client.put("#14171c", (0,0))
-    style.element_create("Graphite.client", "image", root.graphite_client, sticky="nswe")
-    style.layout("TNotebook", [("Graphite.client", {"sticky":"nswe"})])
+    style.layout("TNotebook", [("Notebook.client", {"sticky":"nswe"})])
+    style.configure("TNotebook", borderwidth=0, relief="flat", bordercolor="#14171c",
+                    lightcolor="#14171c", darkcolor="#14171c", background="#14171c")
     style.layout("Soundboard.Treeview", [("Treeview.treearea", {"sticky":"nswe"})])
     style.configure("Soundboard.Treeview", borderwidth=0, relief="flat", bordercolor="#14171c")
     style.configure("Toolbar.TLabel", foreground="#e6edf3", font=("Segoe UI",9))
