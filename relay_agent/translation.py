@@ -40,8 +40,8 @@ class LocalTranslator:
         self.directory.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=self.directory) as temporary:
             archive = Path(temporary) / 'model.zip'
-            url = 'https://argos-net.com/v1/' + MODELS[pair] + '.argosmodel'
-            with urllib.request.urlopen(url, timeout=90, context=ssl.create_default_context(cafile=certifi.where())) as response:
+            url = 'https://data.argosopentech.com/argospm/v1/' + MODELS[pair] + '.argosmodel'
+            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "TacoBot/1.0"}), timeout=90, context=ssl.create_default_context(cafile=certifi.where())) as response:
                 with archive.open('wb') as output:
                     size = 0
                     while chunk := response.read(65536):
