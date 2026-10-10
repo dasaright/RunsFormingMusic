@@ -9,6 +9,7 @@ import shutil
 import ssl
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import queue
@@ -282,17 +283,63 @@ YTDLP_PATH = FILES_DIR / "yt-dlp.exe"
 FFMPEG_PATH = FILES_DIR / "ffmpeg.exe"
 
 
+CONFIG_LOCK = threading.RLock()
+
+
+def read_config_file(path):
+    value = json.loads(path.read_text(encoding="utf-8-sig"))
+    if not isinstance(value, dict):
+        raise ValueError("Relay settings must be a JSON object.")
+    return value
+
+
+def atomic_config_write(path, contents):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as output:
+            output.write(contents)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(name, path)
+    finally:
+        Path(name).unlink(missing_ok=True)
+
+
+def save_config(config):
+    contents = json.dumps(config, indent=2)
+    with CONFIG_LOCK:
+        if CONFIG_PATH.is_file():
+            try:
+                previous = read_config_file(CONFIG_PATH)
+            except (ValueError, UnicodeError):
+                pass
+            else:
+                atomic_config_write(CONFIG_PATH.with_suffix(".json.bak"), json.dumps(previous, indent=2))
+        atomic_config_write(CONFIG_PATH, contents)
+
+
 def create_config():
     token = input("Relay token from !token in Discord: ").strip()
     config = {"server_url": RELAY_URL, "relay_token": token, "relay_name": "Discord relay", "cookies_file": ""}
-    CONFIG_PATH.write_text(json.dumps(config, indent=2), encoding="utf-8")
+    save_config(config)
     return config
 
 
 def load_config():
     if not CONFIG_PATH.is_file():
         return create_config()
-    config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    try:
+        config = read_config_file(CONFIG_PATH)
+    except (ValueError, UnicodeError):
+        # Preserve the damaged file before restoring settings or asking for a token.
+        damaged = CONFIG_PATH.with_name(f"relay-config.corrupt-{time.time_ns()}.json")
+        CONFIG_PATH.replace(damaged)
+        try:
+            config = read_config_file(CONFIG_PATH.with_suffix(".json.bak"))
+        except (OSError, ValueError, UnicodeError):
+            config = {}
+        save_config(config)
     config["server_url"] = RELAY_URL
     config.setdefault("relay_name", "Discord relay")
     return config
@@ -1292,7 +1339,7 @@ class RelayWindow:
         return COPY
 
     def save(self):
-        CONFIG_PATH.write_text(json.dumps(self.config, indent=2), encoding="utf-8")
+        save_config(self.config)
 
     def choose_folder(self):
         folder = filedialog.askdirectory(initialdir=self.folder.get() or None)
@@ -2089,7 +2136,7 @@ def main():
                 return
             config = {"server_url": RELAY_URL, "relay_token": token.strip(),
                       "relay_name": "Discord relay", "cookies_file": "", "mp3_folder": ""}
-            CONFIG_PATH.write_text(json.dumps(config, indent=2), encoding="utf-8")
+            save_config(config)
         if not config.get("relay_token"):
             token = simpledialog.askstring("Setup", "Use !token in Discord, then paste your relay token:", show="*", parent=root)
             if not token:
@@ -2097,7 +2144,7 @@ def main():
                 return
             config["relay_token"] = token.strip()
         config["server_url"] = RELAY_URL
-        CONFIG_PATH.write_text(json.dumps(config, indent=2), encoding="utf-8")
+        save_config(config)
         verify_tools()
         threading.Thread(target=update_ytdlp, daemon=True).start()
         root.deiconify()
