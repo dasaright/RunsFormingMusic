@@ -19,6 +19,7 @@ class SpeechTests(unittest.TestCase):
             self.assertEqual(first,speech.synthesize('hello'))
             voice.synthesize_wav.assert_called_once()
             self.assertGreater(first.stat().st_size,44)
+            with self.assertRaises(ValueError):speech.synthesize('hello','unknown')
             for text in ['', ' '*5, 'a'*1001]:
                 with self.assertRaises(ValueError):speech.synthesize(text)
             self.assertFalse(list(Path(folder).rglob('*.tmp')))
@@ -31,6 +32,7 @@ class SpeechPlaybackTests(unittest.IsolatedAsyncioTestCase):
             agent.speech.synthesize=Mock(return_value=Path(folder)/('a'*64+'.wav'))
             await agent.play_text('Hello')
             payload=agent.send_json.call_args.args[0]
+            agent.speech.synthesize.assert_called_once_with('Hello','en_US-lessac-medium')
             self.assertEqual(payload['type'],'local_play')
             self.assertIsNone(payload['guild_id'])
             self.assertIn(payload['file_id'],agent.tts_files)

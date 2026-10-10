@@ -25,12 +25,12 @@ if __package__:
     from .shared_clips import sync_clips, edit_shared_clip, check_share_target
     from .updater import find_update, prepare_update, launch_installer
     from .direct_audio import DirectAudio, audio_devices
-    from .tts import PiperSpeech, MAX_TEXT
+    from .tts import PiperSpeech, MAX_TEXT, VOICE, VOICE_OPTIONS
 else:
     from shared_clips import sync_clips, edit_shared_clip, check_share_target
     from updater import find_update, prepare_update, launch_installer
     from direct_audio import DirectAudio, audio_devices
-    from tts import PiperSpeech, MAX_TEXT
+    from tts import PiperSpeech, MAX_TEXT, VOICE, VOICE_OPTIONS
 
 
 RELAY_BUILD = 0
@@ -180,6 +180,10 @@ def render_button_icon(name, size=28, color="#52d4ba"):
     elif name == "next":
         line([(6,5),(17,12),(6,19),(6,5)])
         line([(20,5),(20,19)])
+    elif name == "speech":
+        line([(4,4),(20,4),(20,16),(11,16),(6,21),(6,16),(4,16),(4,4)])
+        for x in (8,12,16):
+            draw.ellipse(((x-0.8)*scale,9*scale,(x+0.8)*scale,10.6*scale),fill=color)
     elif name == "soundboard":
         for x,height in ((4,8),(8,14),(12,20),(16,14),(20,8)):
             line([(x,12-height/2),(x,12+height/2)])
@@ -196,7 +200,7 @@ def add_button_icons(root):
             if isinstance(child, ttk.Button):
                 text = child.cget("text")
                 lower = text.lower()
-                name = next((key for key, terms in (("refresh",("refresh",)),("check",("check",)),("sync",("sync",)),("stop",("stop",)),("folder",("folder",)),("download",("install",)),("audio",("audio",)),("previous",("previous",)),("next",("next",)),("soundboard",("soundboard",)),("play",("play","youtube"))) if any(term in lower for term in terms)), "play")
+                name = next((key for key, terms in (("speech",("tts",)),("refresh",("refresh",)),("check",("check",)),("sync",("sync",)),("stop",("stop",)),("folder",("folder",)),("download",("install",)),("audio",("audio",)),("previous",("previous",)),("next",("next",)),("soundboard",("soundboard",)),("play",("play","youtube"))) if any(term in lower for term in terms)), "play")
                 color = "#10211e" if child.cget("style") == "Primary.TButton" else "#52d4ba"
                 key = (name,color)
                 if key not in cache:
@@ -883,7 +887,7 @@ class RelayAgent:
                     raise
                 await asyncio.sleep(0.1)
 
-    async def play_text(self, text):
+    async def play_text(self, text, voice_id=VOICE):
         if self.tts_lock.locked():
             self.events.put({"error": "Wait for the current text to finish generating."})
             return
@@ -892,7 +896,7 @@ class RelayAgent:
                 if self.websocket is None:
                     raise ValueError("Connect your relay token before playing text.")
                 self.events.put({"status": "Generating speech… First use downloads the Piper voice."})
-                path = await asyncio.to_thread(self.speech.synthesize, text)
+                path = await asyncio.to_thread(self.speech.synthesize, text, voice_id)
                 file_id = "tts:" + path.stem
                 self.tts_files[file_id] = path
                 await self.send_json({"type": "local_play", "guild_id": None,
@@ -1160,6 +1164,15 @@ class RelayWindow:
         self.notebook.add(tts_panel, text="TTS")
         ttk.Label(tts_panel, text="TEXT TO SPEECH", style="CardMuted.TLabel").pack(anchor="w")
         ttk.Label(tts_panel, text="Type text and press Enter to speak through the bot. Shift+Enter adds a new line.").pack(anchor="w", pady=(10, 14))
+        voice_row = ttk.Frame(tts_panel)
+        voice_row.pack(fill="x", pady=(0, 14))
+        ttk.Label(voice_row, text="Voice").pack(side="left", padx=(0, 10))
+        chosen_voice = config.get("tts_voice", VOICE)
+        self.tts_voice = tk.StringVar(value=next((label for label, voice in VOICE_OPTIONS.items() if voice == chosen_voice), next(iter(VOICE_OPTIONS))))
+        self.tts_voice_picker = ttk.Combobox(voice_row, textvariable=self.tts_voice,
+                                           values=list(VOICE_OPTIONS), state="readonly", width=30)
+        self.tts_voice_picker.pack(side="left")
+        self.tts_voice_picker.bind("<<ComboboxSelected>>", self.save_tts_voice)
         self.tts_text = tk.Text(tts_panel, height=8, wrap="word", font=("Segoe UI", 12),
                                 background="#1b2027", foreground="#e6edf3", insertbackground="#52d4ba",
                                 relief="flat", highlightthickness=0, padx=16, pady=12)
@@ -1171,7 +1184,7 @@ class RelayWindow:
         self.tts_play_button = ttk.Button(tts_controls, text="▶  Play text", style="Primary.TButton", command=self.play_text)
         self.tts_play_button.pack(side="left")
         ttk.Button(tts_controls, text="🛑  Stop speech / clips", command=lambda: self.send({"type": "local_stop", "guild_id": None})).pack(side="left", padx=10)
-        ttk.Label(tts_panel, text=f"Piper · Lessac English voice · Up to {MAX_TEXT} characters · Generated locally, no API fees").pack(anchor="w")
+        ttk.Label(tts_panel, text=f"Piper · Six English voices · Up to {MAX_TEXT} characters · Generated locally, no API fees").pack(anchor="w")
 
         self.notebook.bind("<<NotebookTabChanged>>", self.update_tabs)
         now_card = ttk.Frame(left, style="Card.TFrame", padding=22)
@@ -1340,6 +1353,10 @@ class RelayWindow:
         if config.get("direct_soundboard"):
             root.after(300, self.restore_direct_mode)
 
+    def save_tts_voice(self, event=None):
+        self.config["tts_voice"] = VOICE_OPTIONS[self.tts_voice.get()]
+        self.save()
+
     def play_text(self, event=None):
         if self.tts_play_button.instate(["disabled"]):
             return "break"
@@ -1348,7 +1365,7 @@ class RelayWindow:
             self.status.set(f"Enter between 1 and {MAX_TEXT} characters.")
             return "break"
         self.tts_play_button.configure(state="disabled")
-        asyncio.run_coroutine_threadsafe(self.agent.play_text(text), self.loop)
+        asyncio.run_coroutine_threadsafe(self.agent.play_text(text, VOICE_OPTIONS[self.tts_voice.get()]), self.loop)
         return "break"
 
     def update_tabs(self, event=None):
