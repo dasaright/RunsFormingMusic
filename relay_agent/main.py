@@ -842,8 +842,8 @@ class RelayWindow:
         top_bar.pack(fill="x", padx=28, pady=(18, 8))
         tabs_bar = ttk.Frame(top_bar)
         tabs_bar.pack(fill="x")
-        audio_bar = ttk.Frame(top_bar)
-        audio_bar.pack(fill="x", pady=(8, 0))
+        audio_bar = tabs_bar
+        ttk.Style(root).configure("Compact.TButton", padding=(6, 6), font=("Segoe UI", 9))
         self.identity = tk.StringVar(value="Connecting your relay")
         self.notebook = ttk.Notebook(root)
         self.notebook.pack(fill="both", expand=True, padx=28)
@@ -854,23 +854,23 @@ class RelayWindow:
             button.pack(side="left", anchor="s", padx=(0, 6))
             self.tab_buttons.append(button)
         self.toolbar_buttons = []
-        button = ttk.Button(tabs_bar, text="Change folder", command=self.choose_folder)
+        button = ttk.Button(tabs_bar, text="Change folder", style="Compact.TButton", command=self.choose_folder)
         button.pack(side="right", anchor="s", padx=(6, 0))
         self.toolbar_buttons.append(button)
-        self.install_button = ttk.Button(audio_bar, text="Install update now", command=self.install_update_now, state="disabled")
+        self.install_button = ttk.Button(audio_bar, text="Install update", style="Compact.TButton", command=self.install_update_now, state="disabled")
         self.install_button.pack(side="right", anchor="s", padx=(6, 0))
-        self.update_button = ttk.Button(audio_bar, text="Check for updates", command=lambda: self.check_updates(manual=True))
+        self.update_button = ttk.Button(audio_bar, text="Check updates", style="Compact.TButton", command=lambda: self.check_updates(manual=True))
         self.update_button.pack(side="right", anchor="s", padx=(6, 0))
         self.auto_update = tk.BooleanVar(value=bool(config.get("auto_update", True)))
-        self.auto_update_checkbox = ttk.Checkbutton(audio_bar, text="Update automatically", variable=self.auto_update,
+        self.auto_update_checkbox = ttk.Checkbutton(audio_bar, text="Auto-update", variable=self.auto_update,
                                                     command=self.toggle_auto_update)
         self.auto_update_checkbox.pack(side="right", anchor="s", padx=(6, 0))
         self.direct_mode = tk.BooleanVar(value=False)
         self.direct_checkbox = ttk.Checkbutton(audio_bar,
-            text="Play soundboard directly instead of through bot", variable=self.direct_mode,
+            text="Play clips directly", variable=self.direct_mode,
             command=self.toggle_direct_mode)
         self.direct_checkbox.pack(side="right", padx=(6, 0))
-        ttk.Button(audio_bar, text="Direct audio settings", command=self.direct_audio_settings).pack(side="right", padx=(6, 0))
+        ttk.Button(audio_bar, text="Direct audio", style="Compact.TButton", command=self.direct_audio_settings).pack(side="right", padx=(6, 0))
         left, right = ttk.Frame(self.notebook, padding=20), ttk.Frame(self.notebook, padding=20)
         self.notebook.add(left, text="YouTube Music")
         self.notebook.add(right, text="Soundboard")
@@ -931,24 +931,22 @@ class RelayWindow:
         self.queue_view.pack(fill="both", expand=True, padx=(0, 12))
         root.bind("<Control-v>", self.paste_youtube_link)
         root.bind("<Control-V>", self.paste_youtube_link)
-        ttk.Label(right, text="Click a filename to play • Right-click to manage • Drag headers to arrange columns", style="Muted.TLabel").pack(anchor="w", pady=(0, 10))
-        ttk.Label(right, textvariable=self.folder, wraplength=900, style="Muted.TLabel").pack(anchor="w", pady=(0, 14))
         search_bar = ttk.Frame(right)
         search_bar.pack(fill="x", pady=(0, 10))
-        ttk.Label(search_bar, text="Search clips / labels", style="Muted.TLabel").pack(side="left", padx=(0, 10))
+        ttk.Label(search_bar, text="Search clips", style="Muted.TLabel").pack(side="left", padx=(0, 6))
         self.clip_search = tk.StringVar(value="")
-        self.clip_search_entry = ttk.Entry(search_bar, textvariable=self.clip_search)
-        self.clip_search_entry.pack(side="left", fill="x", expand=True)
-        ttk.Button(search_bar, text="Clear", command=lambda: self.clip_search.set("")).pack(side="left", padx=(8, 0))
+        self.clip_search_entry = ttk.Entry(search_bar, textvariable=self.clip_search, width=10)
+        self.clip_search_entry.pack(side="left")
         self.clip_search.trace_add("write", lambda *args: self.render_clips())
-        volume_bar = ttk.Frame(right)
-        volume_bar.pack(fill="x", pady=(0, 10))
-        ttk.Label(volume_bar, text="Bot soundboard volume", style="Muted.TLabel").pack(side="left")
+        ttk.Label(search_bar, text="Bot volume", style="Muted.TLabel").pack(side="left", padx=(12, 4))
         self.bot_clip_volume = tk.DoubleVar(value=max(0, min(100, config.get("bot_clip_volume", 100))))
         self.bot_volume_text = tk.StringVar(value=f"{round(self.bot_clip_volume.get())}%")
-        ttk.Scale(volume_bar, from_=0, to=100, variable=self.bot_clip_volume,
-                  command=self.set_bot_clip_volume, length=220).pack(side="left", padx=12)
-        ttk.Label(volume_bar, textvariable=self.bot_volume_text, style="Muted.TLabel").pack(side="left")
+        ttk.Scale(search_bar, from_=0, to=100, variable=self.bot_clip_volume,
+                  command=self.set_bot_clip_volume, length=100).pack(side="left")
+        ttk.Label(search_bar, textvariable=self.bot_volume_text, width=4, style="Muted.TLabel").pack(side="left")
+        ttk.Label(search_bar, text="Click name to play • Right-click to manage • Drag headers", style="Muted.TLabel").pack(side="left", padx=(12, 0))
+        self.folder_label = ttk.Label(search_bar, textvariable=self.folder, anchor="e", style="Muted.TLabel")
+        self.folder_label.pack(side="right", fill="x", expand=True, padx=(12, 0))
         self.sync_running = False
         self.sort_keys = [("name", False)]
         self.sort_column = "name"
@@ -1003,11 +1001,13 @@ class RelayWindow:
         self.status_label.pack(side="bottom", fill="x", padx=28, pady=(6, 4), before=self.notebook)
         self.clip_action_buttons = []
         for text, command in (("Refresh files", self.refresh_files), ("Stop all clips", self.stop), ("Sync clips", self.sync_shared)):
-            button = ttk.Button(update_bar, text=text, command=command)
-            button.pack(side="left", padx=(0, 8))
+            button = ttk.Button(tabs_bar, text=text, style="Compact.TButton", command=command)
+            button.pack(side="left", anchor="s", padx=(0, 4))
             self.clip_action_buttons.append(button)
         ttk.Label(update_bar, text=f"RunsFormingMusic v1.{RELAY_BUILD}", style="Muted.TLabel").pack(side="right")
         ttk.Label(update_bar, textvariable=self.identity, style="Muted.TLabel").pack(side="right", padx=18)
+        root.update_idletasks()
+        root.minsize(max(1160, tabs_bar.winfo_reqwidth() + 56), 620)
         self.update_check_running = False
         self.pending_update = None
         status_file = FILES_DIR / "update-status.txt"

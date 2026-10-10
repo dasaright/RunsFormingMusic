@@ -141,9 +141,11 @@ class HeaderDragTests(unittest.TestCase):
                 self.assertLessEqual(window.notebook.winfo_y() + window.notebook.winfo_height(),
                                      window.status_label.winfo_y())
             root.geometry('1180x780'); root.update()
+            self.assertEqual(window.direct_checkbox.master, window.tab_buttons[0].master)
+            self.assertEqual(int(window.clip_search_entry.cget("width")), 10)
             self.assertEqual(len(window.notebook.tabs()), 2)
             self.assertFalse(window.direct_mode.get())
-            self.assertEqual(window.direct_checkbox.cget('text'), 'Play soundboard directly instead of through bot')
+            self.assertEqual(window.direct_checkbox.cget('text'), 'Play clips directly')
             self.assertEqual(window.direct_checkbox.master, window.auto_update_checkbox.master)
             self.assertFalse(hasattr(window, 'destination'))
             self.assertGreater(window.tab_buttons[0].winfo_height(), window.tab_buttons[1].winfo_height())
@@ -178,7 +180,7 @@ class HeaderDragTests(unittest.TestCase):
             self.assertFalse(any(call.args[0].get('type') == 'local_play' for call in window.send.call_args_list))
             self.assertEqual(window.toolbar_buttons[0].master, window.tab_buttons[0].master)
             self.assertEqual(window.update_button.master, window.direct_checkbox.master)
-            self.assertNotEqual(window.clip_action_buttons[0].master, window.tab_buttons[0].master)
+            self.assertEqual(window.clip_action_buttons[0].master, window.tab_buttons[0].master)
             from tkinter import ttk
             self.assertEqual(int(ttk.Style(root).lookup('Soundboard.Treeview', 'rowheight')), 18)
             window.header_drag = {'column':'volume','x':100,'moved':True}
