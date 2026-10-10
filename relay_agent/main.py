@@ -726,6 +726,7 @@ class RelayAgent:
         pump_task = None
         ytdlp_error_task = None
         ffmpeg_error_task = None
+        terminal = {"type": "stream_end", "request_id": request_id}
         try:
             local_path = (self.local_files.get(url[6:]) or self.tts_files.get(url[6:])) if url.startswith("local:") else None
             if url.startswith("local:") and local_path is None:
@@ -819,26 +820,11 @@ class RelayAgent:
             ffmpeg_error = await ffmpeg_error_task
             if ytdlp_code or ffmpeg_code:
                 raise RuntimeError(ytdlp_error or ffmpeg_error)
-            await self.send_json({
-                "type": "stream_end",
-                "request_id": request_id,
-            })
         except asyncio.CancelledError:
-            try:
-                await asyncio.shield(self.send_json({
-                    "type": "stream_end",
-                    "request_id": request_id,
-                }))
-            except Exception:
-                pass
             raise
         except Exception as exc:
             self.events.put({"error": clean_error(exc)})
-            await self.send_json({
-                "type": "stream_error",
-                "request_id": request_id,
-                "error": clean_error(exc),
-            })
+            terminal = {"type": "stream_error", "request_id": request_id, "error": clean_error(exc)}
         finally:
             for process in (ffmpeg, ytdlp):
                 if process is not None and process.returncode is None:
@@ -860,6 +846,12 @@ class RelayAgent:
             elif self.stream_request_id == request_id:
                 self.stream_task = None
                 self.stream_request_id = None
+            # A completion acknowledgement means the remote slot is actually free.
+            # Send it only after process cleanup and task-slot release.
+            try:
+                await asyncio.shield(self.send_json(terminal))
+            except Exception:
+                pass
 
     async def share_clip_file(self, file_id, path, folder, remove_local=False):
         target = await asyncio.to_thread(copy_clip_to_shared, path, folder)
