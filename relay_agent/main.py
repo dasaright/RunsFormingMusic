@@ -22,9 +22,11 @@ from websockets.asyncio.client import connect
 if __package__:
     from .shared_clips import sync_clips, edit_shared_clip, check_share_target
     from .updater import find_update, prepare_update, launch_installer
+    from .direct_audio import DirectAudio, audio_devices
 else:
     from shared_clips import sync_clips, edit_shared_clip, check_share_target
     from updater import find_update, prepare_update, launch_installer
+    from direct_audio import DirectAudio, audio_devices
 
 
 RELAY_BUILD = 0
@@ -309,6 +311,8 @@ class RelayAgent:
         self.playback_gate = asyncio.Event()
         self.playback_gate.set()
         self.events = queue.Queue()
+        self.direct_audio = DirectAudio(FFMPEG_PATH, self.events)
+        self.direct_tasks = {}
         self.token_ready = asyncio.Event()
         self.token_ready.set()
 
@@ -377,6 +381,28 @@ class RelayAgent:
                 "ok": False,
                 "error": clean_error(exc),
             })
+
+    async def play_direct_clip(self, file_id):
+        task = asyncio.current_task()
+        self.direct_tasks[task] = file_id
+        try:
+            path = self.local_files[file_id]
+            gain = await self.normalize_clip(path)
+            adjustment = self.config.get("clip_settings", {}).get(file_id, {}).get("volume", 0)
+            self.direct_audio.play(file_id, path, gain, adjustment)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self.events.put({"error": "Direct playback: " + clean_error(exc)})
+        finally:
+            self.direct_tasks.pop(task, None)
+
+    async def stop_direct_clips(self, file_id=None):
+        tasks = [task for task, key in list(self.direct_tasks.items()) if file_id is None or key == file_id]
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.to_thread(self.direct_audio.stop_file, file_id)
 
     async def normalize_clip(self, path):
         key = str(path.resolve())
@@ -582,6 +608,7 @@ class RelayAgent:
         return target
 
     async def edit_clip_file(self, file_id, path, new_name=None):
+        await self.stop_direct_clips(file_id)
         if self.preload_path == path and self.preload_task:
             self.preload_task.cancel()
             await asyncio.gather(self.preload_task, return_exceptions=True)
@@ -806,34 +833,44 @@ class RelayWindow:
         self.loop = asyncio.new_event_loop()
         self.file_ids = []
         root.title("Runsforming Audio Relay")
-        root.geometry("1060x740")
-        root.minsize(1040, 570)
+        root.geometry("1180x780")
+        root.minsize(1160, 620)
         style_relay(root)
         self.status = tk.StringVar(value="Connecting…")
         self.folder = tk.StringVar(value=config.get("mp3_folder", ""))
         top_bar = ttk.Frame(root)
         top_bar.pack(fill="x", padx=28, pady=(18, 8))
+        tabs_bar = ttk.Frame(top_bar)
+        tabs_bar.pack(fill="x")
+        audio_bar = ttk.Frame(top_bar)
+        audio_bar.pack(fill="x", pady=(8, 0))
         self.identity = tk.StringVar(value="Connecting your relay")
         self.notebook = ttk.Notebook(root)
         self.notebook.pack(fill="both", expand=True, padx=28)
         self.tab_buttons = []
         for index, text in enumerate(("YouTube Music", "Soundboard")):
-            button = ttk.Button(top_bar, text=text, style="SelectedTab.TButton" if index == 0 else "OtherTab.TButton",
+            button = ttk.Button(tabs_bar, text=text, style="SelectedTab.TButton" if index == 0 else "OtherTab.TButton",
                                 command=lambda i=index: self.notebook.select(i))
             button.pack(side="left", anchor="s", padx=(0, 6))
             self.tab_buttons.append(button)
         self.toolbar_buttons = []
-        button = ttk.Button(top_bar, text="Change folder", command=self.choose_folder)
+        button = ttk.Button(tabs_bar, text="Change folder", command=self.choose_folder)
         button.pack(side="right", anchor="s", padx=(6, 0))
         self.toolbar_buttons.append(button)
-        self.install_button = ttk.Button(top_bar, text="Install update now", command=self.install_update_now, state="disabled")
+        self.install_button = ttk.Button(audio_bar, text="Install update now", command=self.install_update_now, state="disabled")
         self.install_button.pack(side="right", anchor="s", padx=(6, 0))
-        self.update_button = ttk.Button(top_bar, text="Check for updates", command=lambda: self.check_updates(manual=True))
+        self.update_button = ttk.Button(audio_bar, text="Check for updates", command=lambda: self.check_updates(manual=True))
         self.update_button.pack(side="right", anchor="s", padx=(6, 0))
         self.auto_update = tk.BooleanVar(value=bool(config.get("auto_update", True)))
-        self.auto_update_checkbox = ttk.Checkbutton(top_bar, text="Update automatically", variable=self.auto_update,
+        self.auto_update_checkbox = ttk.Checkbutton(audio_bar, text="Update automatically", variable=self.auto_update,
                                                     command=self.toggle_auto_update)
         self.auto_update_checkbox.pack(side="right", anchor="s", padx=(6, 0))
+        self.direct_mode = tk.BooleanVar(value=False)
+        self.direct_checkbox = ttk.Checkbutton(audio_bar,
+            text="Play soundboard directly instead of through bot", variable=self.direct_mode,
+            command=self.toggle_direct_mode)
+        self.direct_checkbox.pack(side="right", padx=(6, 0))
+        ttk.Button(audio_bar, text="Direct audio settings", command=self.direct_audio_settings).pack(side="right", padx=(6, 0))
         left, right = ttk.Frame(self.notebook, padding=20), ttk.Frame(self.notebook, padding=20)
         self.notebook.add(left, text="YouTube Music")
         self.notebook.add(right, text="Soundboard")
@@ -975,6 +1012,8 @@ class RelayWindow:
         threading.Thread(target=self.run_agent, daemon=True).start()
         root.after(100, self.poll)
         root.protocol("WM_DELETE_WINDOW", self.close)
+        if config.get("direct_soundboard"):
+            root.after(300, self.restore_direct_mode)
 
     def update_tabs(self, event=None):
         self.clip_position_signature = None
@@ -982,6 +1021,81 @@ class RelayWindow:
         for index, button in enumerate(self.tab_buttons):
             button.configure(style="SelectedTab.TButton" if index == selected else "OtherTab.TButton")
         self.root.after_idle(self.position_clip_widgets)
+
+    def restore_direct_mode(self):
+        self.direct_mode.set(True)
+        self.toggle_direct_mode()
+
+    def toggle_direct_mode(self):
+        if self.direct_mode.get() and not self.config.get("direct_audio_devices"):
+            self.direct_mode.set(False)
+            self.direct_audio_settings(enable=True)
+            return
+        enabled = self.direct_mode.get()
+        self.direct_checkbox.configure(state="disabled")
+        self.status.set("Configuring direct audio…" if enabled else "Returning soundboard playback to the bot…")
+        async def change():
+            await self.agent.stop_direct_clips()
+            try:
+                if enabled:
+                    await asyncio.to_thread(self.agent.direct_audio.configure, self.config["direct_audio_devices"])
+                else:
+                    await asyncio.to_thread(self.agent.direct_audio.close)
+                self.agent.events.put({"direct_ready": enabled})
+            except Exception as exc:
+                self.agent.events.put({"direct_failed": clean_error(exc)})
+        asyncio.run_coroutine_threadsafe(change(), self.loop)
+
+    def direct_audio_settings(self, enable=False):
+        if self.direct_checkbox.instate(["disabled"]):
+            self.status.set("Wait for direct audio setup to finish.")
+            return
+        try:
+            devices = audio_devices()
+        except Exception as exc:
+            messagebox.showerror("Direct audio", str(exc), parent=self.root)
+            return
+        outputs = [d for d in devices if d['output'] >= 2]
+        inputs = [d for d in devices if d['input'] >= 1 and not any(
+            word in d['name'].lower() for word in ('cable output', 'voicemeeter output'))]
+        cable = next((d for d in outputs if 'cable input' in d['name'].lower()
+                      and 'WASAPI' in d['key']), None) or next((d for d in outputs if 'cable input' in d['name'].lower()), None)
+        if not outputs:
+            messagebox.showerror("Direct audio", "No stereo audio outputs found.", parent=self.root)
+            return
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Direct soundboard audio")
+        dialog.transient(self.root)
+        panel = ttk.Frame(dialog, padding=20); panel.pack(fill="both", expand=True)
+        ttk.Label(panel, text="Install VB-CABLE if needed: https://vb-audio.com/Cable/\n"
+            "Select CABLE Input below, then select CABLE Output as Discord's Input Device.\n"
+            "Microphone passthrough mixes your voice into the cable; speakers play clips only.", wraplength=640).pack(anchor="w", pady=(0, 12))
+        previous = self.config.get('direct_audio_devices', {})
+        choices = {}
+        physical = [d for d in outputs if not any(word in d['name'].lower() for word in ('cable', 'voicemeeter'))]
+        default_speaker = next((d for d in physical if 'WASAPI' in d['key']), None) or next(iter(physical), outputs[0])
+        default_mic = next((d for d in inputs if 'WASAPI' in d['key']), None) or next(iter(inputs), None)
+        for key, title, options, default in (
+            ('cable', 'Virtual microphone output (usually CABLE Input)', [d['key'] for d in outputs], cable['key'] if cable else ''),
+            ('speakers', 'Speakers / headphones for hearing clips', [d['key'] for d in outputs], default_speaker['key']),
+            ('microphone', 'Physical microphone to pass through (optional)', ['No microphone passthrough'] + [d['key'] for d in inputs], default_mic['key'] if default_mic else 'No microphone passthrough')):
+            ttk.Label(panel, text=title).pack(anchor="w", pady=(6, 2))
+            selected = previous.get(key) or default
+            value = tk.StringVar(value=selected if selected in options else default)
+            ttk.Combobox(panel, textvariable=value, values=options, state="readonly", width=80).pack(fill="x")
+            choices[key] = value
+        def apply():
+            settings = {key: value.get() for key, value in choices.items()}
+            if settings['microphone'] == 'No microphone passthrough':
+                settings['microphone'] = None
+            if not settings['cable']:
+                messagebox.showerror("Direct audio", "Install a virtual audio cable and select its playback output.", parent=dialog)
+                return
+            self.config['direct_audio_devices'] = settings
+            self.save(); dialog.destroy()
+            if enable or self.direct_mode.get():
+                self.direct_mode.set(True); self.toggle_direct_mode()
+        ttk.Button(panel, text="Save and enable" if enable else "Save", command=apply).pack(anchor="e", pady=(16, 0))
 
     def toggle_auto_update(self):
         self.config["auto_update"] = self.auto_update.get()
@@ -1038,7 +1152,7 @@ class RelayWindow:
                 self.pending_update = None
                 threading.Thread(target=lambda: shutil.rmtree(stage, ignore_errors=True), daemon=True).start()
                 return
-            busy = bool(self.agent.stream_task and not self.agent.stream_task.done()) or any(not task.done() for task in self.agent.clip_tasks.values())
+            busy = self.agent.direct_audio.playing or bool(self.agent.direct_tasks) or bool(self.agent.stream_task and not self.agent.stream_task.done()) or any(not task.done() for task in self.agent.clip_tasks.values())
             busy = busy and not manual
             if busy:
                 self.update_idle_since = None
@@ -1705,12 +1819,21 @@ class RelayWindow:
             return
         if not file_id or pressed != file_id or self.clip_column_at(event.x) != "name":
             return
+        if hasattr(self, "direct_checkbox") and self.direct_checkbox.instate(["disabled"]):
+            self.status.set("Wait for direct audio setup to finish.")
+            return
         guild_id = None
         self.status.set("Starting clip " + self.agent.local_files[file_id].name)
+        if self.config.get("direct_soundboard"):
+            asyncio.run_coroutine_threadsafe(self.agent.play_direct_clip(file_id), self.loop)
+            return
         self.send({"type": "local_play", "guild_id": guild_id, "file_id": file_id,
                    "title": self.agent.local_files[file_id].name})
 
     def stop(self):
+        if self.config.get("direct_soundboard"):
+            asyncio.run_coroutine_threadsafe(self.agent.stop_direct_clips(), self.loop)
+            return
         guild_id = self.target_id()
         self.send({"type": "local_stop", "guild_id": guild_id})
 
@@ -1724,6 +1847,15 @@ class RelayWindow:
     def poll(self):
         while not self.agent.events.empty():
             event = self.agent.events.get_nowait()
+            if "direct_ready" in event or "direct_failed" in event:
+                enabled = event.get("direct_ready", False)
+                self.direct_mode.set(enabled)
+                self.config["direct_soundboard"] = enabled
+                self.direct_checkbox.configure(state="normal")
+                self.save()
+                if event.get("direct_failed"):
+                    messagebox.showerror("Direct audio unavailable", event["direct_failed"], parent=self.root)
+                self.status.set("Direct soundboard enabled. Use the virtual cable as Discord's microphone input." if enabled else "Soundboard playback uses the bot.")
             if "normalization_cache" in event:
                 self.config["clip_normalization"] = event["normalization_cache"]
                 if getattr(self, "normalization_save_after", None) is None:
@@ -1815,6 +1947,7 @@ class RelayWindow:
         self.save()
 
     def close(self):
+        self.agent.direct_audio.close()
         self.config["clip_normalization"] = self.agent.normalization_cache
         self.save()
         def cancel_all():
@@ -1867,6 +2000,8 @@ if __name__ == "__main__":
     elif "--self-test" in sys.argv:
         try:
             verify_tools()
+            import sounddevice
+            assert sounddevice.get_portaudio_version()[0] > 0
             test_root = create_root()
             test_root.withdraw()
             from tkinterdnd2 import DND_FILES

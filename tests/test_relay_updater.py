@@ -103,7 +103,7 @@ class UpdateWindowTests(unittest.TestCase):
         window = RelayWindow.__new__(RelayWindow)
         window.auto_update = Mock()
         window.auto_update.get.return_value = True
-        window.agent = SimpleNamespace(stream_task=None, clip_tasks={})
+        window.agent = SimpleNamespace(stream_task=None, clip_tasks={}, direct_tasks={}, direct_audio=SimpleNamespace(playing=False))
         window.last_music = None
         window.pending_update = (Path('test-stage'), False)
         window.update_idle_since = 0

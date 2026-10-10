@@ -22,6 +22,7 @@ class ClipClickTests(unittest.TestCase):
         window.destination = Mock()
         window.destination.current.return_value = 0
         window.targets = [{'id':'1'}]
+        window.config = {}
         window.agent = SimpleNamespace(local_files={'clip': Path('clip.mp3')})
         window.status = Mock()
         window.send = Mock()
@@ -130,6 +131,9 @@ class HeaderDragTests(unittest.TestCase):
             window.save = Mock(); window.send = Mock()
             root.update()
             self.assertEqual(len(window.notebook.tabs()), 2)
+            self.assertFalse(window.direct_mode.get())
+            self.assertEqual(window.direct_checkbox.cget('text'), 'Play soundboard directly instead of through bot')
+            self.assertEqual(window.direct_checkbox.master, window.auto_update_checkbox.master)
             self.assertFalse(hasattr(window, 'destination'))
             self.assertGreater(window.tab_buttons[0].winfo_height(), window.tab_buttons[1].winfo_height())
             from tkinter import ttk
@@ -162,7 +166,7 @@ class HeaderDragTests(unittest.TestCase):
             self.assertEqual(window.listbox.selection(), ('clip',))
             self.assertFalse(any(call.args[0].get('type') == 'local_play' for call in window.send.call_args_list))
             self.assertEqual(window.toolbar_buttons[0].master, window.tab_buttons[0].master)
-            self.assertEqual(window.update_button.master, window.tab_buttons[0].master)
+            self.assertEqual(window.update_button.master, window.direct_checkbox.master)
             self.assertNotEqual(window.clip_action_buttons[0].master, window.tab_buttons[0].master)
             from tkinter import ttk
             self.assertEqual(int(ttk.Style(root).lookup('Soundboard.Treeview', 'rowheight')), 18)

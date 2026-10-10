@@ -194,3 +194,15 @@ Soundboard volume sliders and colored labels use two canvas surfaces instead of 
 YouTube Music has saved favorites/playlists on the left and the shared Discord queue on the right. Right-click a queue song to Favorite it or Remove from queue. Double-click a saved item to enqueue it; saved playlist links add up to 50 songs. Favorites are saved locally and retained across relay updates. Right-click a saved item to remove it from favorites. Removing the currently playing song advances music without stopping soundboard clips.
 
 Use Search clips / labels above the soundboard for instant case-insensitive filtering. Clear restores the complete list. Filtering never deletes files or stops audio. Canvas rows align below the actual Windows column header height, including after opening the soundboard from the music tab.
+
+## Play soundboard through your own Discord microphone
+
+Check **Play soundboard directly instead of through bot** beside **Update automatically**. The choice and device selections are remembered. This mode affects soundboard clips only; YouTube music still uses the bot.
+
+First-time setup:
+1. Install [VB-CABLE](https://vb-audio.com/Cable/) and restart Windows if its installer requests it.
+2. Open **Direct audio settings**. Choose **CABLE Input** as the virtual microphone output, your speakers/headphones for monitoring, and your physical microphone for optional voice passthrough. The Windows WASAPI entries are preferred. Devices must support stereo output and 48 kHz; the microphone uses mono 48 kHz.
+3. In Discord **User Settings → Voice & Video**, choose **CABLE Output** as Input Device and your normal speakers/headphones as Output Device. If Discord suppresses clips, adjust its noise suppression and input sensitivity.
+4. Click clip filenames. Audio goes to the cable and speakers, without requesting bot playback or connecting the bot to voice. Your microphone is mixed into the cable only, so you do not hear your own microphone through the speakers. Existing normalization and clip sliders still apply.
+
+**Stop all clips** stops direct clips but keeps microphone passthrough active. Unchecking the box stops direct playback and microphone passthrough and restores bot playback for clips. When unchecking, switch Discord's Input Device back to your physical microphone. The relay cannot change Discord's device selection automatically. Direct mode requires the relay to remain open; closing it releases its audio devices. Auto-updates wait for direct clips to finish, while manual installation can stop them immediately.
