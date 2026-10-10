@@ -1500,8 +1500,9 @@ class RelayWindow:
         widths = {c: self.listbox.column(c, "width") for c in self.clip_canvases}
         if widths != self.clip_canvas_widths:
             self.preload_clip_widgets()
+        first_box = self.listbox.bbox(self.file_ids[0]) if self.listbox.yview()[0] == 0 else ()
         signature = (self.listbox.yview(), self.listbox.winfo_width(), self.listbox.winfo_height(), self.listbox.winfo_ismapped(),
-                     tuple(self.listbox.cget("displaycolumns")))
+                     tuple(self.listbox.cget("displaycolumns")), first_box[1] if first_box else None)
         if signature == getattr(self, "clip_position_signature", None):
             return
         self.clip_position_signature = signature
@@ -1518,6 +1519,8 @@ class RelayWindow:
                              if self.listbox.identify_region(probe_x, y) == "cell"), None)
             if body_top is not None:
                 self.clip_body_top = body_top
+        if first_box:
+            self.clip_body_top = first_box[1]
         y = self.clip_body_top
         x = self.clip_body_left
         positions = {}
