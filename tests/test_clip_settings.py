@@ -12,6 +12,11 @@ class ClipSettingsTests(unittest.TestCase):
         self.assertEqual(clip_gain(data, -100), bytes(len(data)))
         self.assertEqual(list(array("h", clip_gain(data, 100))), [2000, -2000, 32767, -32768])
         self.assertEqual(clip_gain(data, 500), clip_gain(data, 100))
+        self.assertEqual(clip_gain(data, 0, 0), bytes(len(data)))
+        self.assertEqual(list(array("h", clip_gain(data, 0, 50))), [500, -500, 10000, -10000])
+        # Combine gains before limiting, preserving boosted clips at reduced master volume.
+        self.assertEqual(clip_gain(data, 100, 50), data)
+
 
     def test_label_color_updates_shared_label_without_changing_other_labels(self):
         window = RelayWindow.__new__(RelayWindow)

@@ -44,8 +44,8 @@ LABEL_COLORS = {
 }
 
 
-def clip_gain(frame, adjustment):
-    gain = 1 + max(-100, min(100, float(adjustment))) / 100
+def clip_gain(frame, adjustment, master_volume=100):
+    gain = (1 + max(-100, min(100, float(adjustment))) / 100) * max(0, min(100, float(master_volume))) / 100
     if gain == 1:
         return frame
     samples = array("h")
@@ -534,7 +534,7 @@ class RelayAgent:
                             await self.playback_gate.wait()
                         frame = exc.partial + bytes(PCM_FRAME_BYTES - len(exc.partial))
                         if local_path is not None:
-                            frame = clip_gain(frame, self.config.get("clip_settings", {}).get(url.removeprefix("local:"), {}).get("volume", 0))
+                            frame = clip_gain(frame, self.config.get("clip_settings", {}).get(url.removeprefix("local:"), {}).get("volume", 0), self.config.get("bot_clip_volume", 100))
                         await self.send_binary(request_id.encode("ascii") + frame)
                     break
                 if local_path is None:
@@ -548,7 +548,7 @@ class RelayAgent:
                 next_frame_at = max(next_frame_at, now - 0.1)
                 await asyncio.sleep(max(0, next_frame_at - now))
                 if local_path is not None:
-                    frame = clip_gain(frame, self.config.get("clip_settings", {}).get(url.removeprefix("local:"), {}).get("volume", 0))
+                    frame = clip_gain(frame, self.config.get("clip_settings", {}).get(url.removeprefix("local:"), {}).get("volume", 0), self.config.get("bot_clip_volume", 100))
                 await self.send_binary(request_id.encode("ascii") + frame)
                 next_frame_at += 0.02
             if pump_task is not None:
@@ -941,6 +941,14 @@ class RelayWindow:
         self.clip_search_entry.pack(side="left", fill="x", expand=True)
         ttk.Button(search_bar, text="Clear", command=lambda: self.clip_search.set("")).pack(side="left", padx=(8, 0))
         self.clip_search.trace_add("write", lambda *args: self.render_clips())
+        volume_bar = ttk.Frame(right)
+        volume_bar.pack(fill="x", pady=(0, 10))
+        ttk.Label(volume_bar, text="Bot soundboard volume", style="Muted.TLabel").pack(side="left")
+        self.bot_clip_volume = tk.DoubleVar(value=max(0, min(100, config.get("bot_clip_volume", 100))))
+        self.bot_volume_text = tk.StringVar(value=f"{round(self.bot_clip_volume.get())}%")
+        ttk.Scale(volume_bar, from_=0, to=100, variable=self.bot_clip_volume,
+                  command=self.set_bot_clip_volume, length=220).pack(side="left", padx=12)
+        ttk.Label(volume_bar, textvariable=self.bot_volume_text, style="Muted.TLabel").pack(side="left")
         self.sync_running = False
         self.sort_keys = [("name", False)]
         self.sort_column = "name"
@@ -1343,6 +1351,15 @@ class RelayWindow:
 
     def clip_setting(self, key):
         return self.config.setdefault("clip_settings", {}).setdefault(key, {})
+
+    def set_bot_clip_volume(self, value):
+        volume = round(float(value))
+        self.config["bot_clip_volume"] = volume
+        self.bot_volume_text.set(f"{volume}%")
+        pending = getattr(self, "volume_save_after", None)
+        if pending:
+            self.root.after_cancel(pending)
+        self.volume_save_after = self.root.after(300, self.save_volume)
 
     def set_clip_volume(self, key, value, text):
         volume = round(float(value))
