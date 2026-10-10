@@ -130,6 +130,7 @@ class HeaderDragTests(unittest.TestCase):
                 window = RelayWindow(root, {})
             window.save = Mock(); window.send = Mock()
             root.update()
+            window.notebook.select(1); root.update()
             # The lists must shrink before the footer loses its allocated space.
             for size in ('1180x780', '1160x620', '1400x900'):
                 root.geometry(size); root.update()
@@ -140,11 +141,13 @@ class HeaderDragTests(unittest.TestCase):
                                          root.winfo_rooty() + root.winfo_height())
                 self.assertLessEqual(window.notebook.winfo_y() + window.notebook.winfo_height(),
                                      window.status_label.winfo_y())
-            root.geometry('1180x780'); root.update()
+            root.geometry('1180x780'); window.notebook.select(0); root.update()
             self.assertEqual(window.direct_checkbox.master, window.tab_buttons[0].master)
             self.assertEqual(int(window.clip_search_entry.cget("width")), 10)
             self.assertEqual(window.stop_clips_button.master, window.clip_search_entry.master)
+            window.notebook.select(1); root.update()
             self.assertLess(window.stop_clips_button.winfo_x(), window.clip_search_entry.winfo_x())
+            window.notebook.select(0); root.update()
             self.assertEqual(window.refresh_button.master, window.direct_checkbox.master)
             self.assertLess(window.refresh_button.winfo_x(), window.sync_button.winfo_x())
             self.assertLess(window.sync_button.winfo_x(), window.direct_checkbox.winfo_x())
