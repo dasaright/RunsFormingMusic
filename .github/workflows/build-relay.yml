@@ -68,7 +68,7 @@ jobs:
       - name: Build relay executable
         run: >-
           pyinstaller --clean --noconfirm --onefile --windowed --paths .
-          --collect-all sounddevice --collect-all _sounddevice_data --collect-data certifi --collect-all tkinterdnd2 --name RunsformingRelay relay_agent/main.py
+          --collect-all sounddevice --collect-all _sounddevice_data --collect-data certifi --collect-all tkinterdnd2 --name TacoBot relay_agent/main.py
 
       - name: Download current yt-dlp
         shell: pwsh
@@ -98,10 +98,10 @@ jobs:
       - name: Verify packaged executable and dependencies
         shell: pwsh
         run: |
-          $process = Start-Process -FilePath (Resolve-Path "dist/RunsformingRelay.exe") -ArgumentList "--self-test" -PassThru
+          $process = Start-Process -FilePath (Resolve-Path "dist/TacoBot.exe") -ArgumentList "--self-test" -PassThru
           if (-not $process.WaitForExit(60000)) {
             taskkill /PID $process.Id /T /F
-            Get-Content "build/RunsformingRelay/warn-RunsformingRelay.txt"
+            Get-Content "build/TacoBot/warn-TacoBot.txt"
             throw "Packaged relay self-test timed out"
           }
           $process.Refresh()
@@ -116,8 +116,8 @@ jobs:
           $fixture = Join-Path $env:RUNNER_TEMP "Relay Update Test"
           $stage = Join-Path $env:RUNNER_TEMP "Relay Update Stage"
           New-Item -ItemType Directory -Force "$fixture/Files", "$fixture/sharedclips", "$stage/payload/Files" | Out-Null
-          Copy-Item "dist/RunsformingRelay.exe" "$fixture/Relay Custom Name.exe"
-          Copy-Item "dist/RunsformingRelay.exe" "$stage/payload/RunsformingRelay.exe"
+          Copy-Item "dist/TacoBot.exe" "$fixture/Relay Custom Name.exe"
+          Copy-Item "dist/TacoBot.exe" "$stage/payload/TacoBot.exe"
           Copy-Item "dist/Files/*" "$fixture/Files"
           Copy-Item "dist/Files/*" "$stage/payload/Files"
           Set-Content "$fixture/README.md" "old README"
@@ -138,25 +138,25 @@ jobs:
           if ((Get-Content "$fixture/README.md").Trim() -ne "updated README") { throw "Update did not copy payload" }
           if ((Get-Content "$fixture/relay-config.json").Trim() -ne "preserve config") { throw "Config was altered" }
           if ((Get-Content "$fixture/sharedclips/clip.ogg").Trim() -ne "preserve clip") { throw "Clips were altered" }
-          if (Test-Path "$fixture/RunsformingRelay.exe") { throw "Renamed executable was not updated in place" }
+          if (Test-Path "$fixture/TacoBot.exe") { throw "Renamed executable was not updated in place" }
           Write-Host "Actual frozen launcher, install, renamed executable, and restart verified"
 
       - name: Package relay bundle
         shell: pwsh
         run: |
           Copy-Item "relay_agent/README.md" "dist/README.md"
-          Compress-Archive "dist/*" "RunsformingRelay-Windows.zip"
+          Compress-Archive "dist/*" "TacoBot-Windows.zip"
           $manifest = @{
             schema = 1
             build = [int]${{ github.run_number }}
-            sha256 = (Get-FileHash "RunsformingRelay-Windows.zip" -Algorithm SHA256).Hash.ToLower()
+            sha256 = (Get-FileHash "TacoBot-Windows.zip" -Algorithm SHA256).Hash.ToLower()
           }
           $manifest | ConvertTo-Json | Set-Content -Encoding utf8 "relay-update.json"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: RunsformingRelay-Windows
-          path: RunsformingRelay-Windows.zip
+          name: TacoBot-Windows
+          path: TacoBot-Windows.zip
           retention-days: 30
 
       - name: Publish relay release
@@ -166,7 +166,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "relay-${{ github.run_number }}"
-          gh release create $tag "RunsformingRelay-Windows.zip" "relay-update.json" --target $env:GITHUB_SHA --title "TacoBot v1.${{ github.run_number }}" --notes "Portable Windows relay with automatic updates. Keep relay-config.json when upgrading." --draft
+          gh release create $tag "TacoBot-Windows.zip" "relay-update.json" --target $env:GITHUB_SHA --title "TacoBot v1.${{ github.run_number }}" --notes "Portable Windows relay with automatic updates. Keep relay-config.json when upgrading." --draft
           if ($LASTEXITCODE -ne 0) { throw "Could not create relay release" }
           gh release edit $tag --draft=false --latest=true
           if ($LASTEXITCODE -ne 0) { throw "Could not publish relay release" }

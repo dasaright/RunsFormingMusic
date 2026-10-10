@@ -13,7 +13,7 @@ from relay_agent.updater import (UPDATE_FILES, BUNDLE_NAME, MANIFEST_NAME, find_
 
 
 def asset(name, build=5):
-    return {'name':name, 'browser_download_url':f'https://github.com/dasaright/RunsFormingMusic/releases/download/relay-{build}/{name}'}
+    return {'name':name, 'browser_download_url':f'https://github.com/dasaright/TacoBot/releases/download/relay-{build}/{name}'}
 
 
 class UpdateTests(unittest.TestCase):

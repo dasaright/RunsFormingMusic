@@ -16,16 +16,16 @@ import zipfile
 
 import certifi
 
-REPOSITORY = 'dasaright/RunsFormingMusic'
+REPOSITORY = 'dasaright/TacoBot'
 RELEASES_URL = f'https://api.github.com/repos/{REPOSITORY}/releases?per_page=30'
-BUNDLE_NAME = 'RunsformingRelay-Windows.zip'
+BUNDLE_NAME = 'TacoBot-Windows.zip'
 MANIFEST_NAME = 'relay-update.json'
-UPDATE_FILES = ('RunsformingRelay.exe', 'README.md', 'Files/ffmpeg.exe', 'Files/yt-dlp.exe')
+UPDATE_FILES = ('TacoBot.exe', 'README.md', 'Files/ffmpeg.exe', 'Files/yt-dlp.exe')
 MAX_DOWNLOAD_BYTES = 250 * 1024 * 1024
 
 
 def open_url(url):
-    request = urllib.request.Request(url, headers={'User-Agent': 'RunsformingRelay-Updater'})
+    request = urllib.request.Request(url, headers={'User-Agent': 'TacoBot-Updater'})
     return urllib.request.urlopen(request, timeout=60,
         context=ssl.create_default_context(cafile=certifi.where()))
 
@@ -95,7 +95,7 @@ def extract_verified_bundle(archive, destination, expected_digest):
 
 
 def prepare_update(update):
-    stage = Path(tempfile.mkdtemp(prefix='RunsformingRelay-update-'))
+    stage = Path(tempfile.mkdtemp(prefix='TacoBot-update-'))
     try:
         archive = stage / 'download.zip'
         downloaded = 0
@@ -118,7 +118,7 @@ INSTALL_SCRIPT = r'''param(
     [int]$ProcessToWait = 0,
     [int]$ParentProcessToWait = 0,
     [switch]$NoRestart,
-    [string]$ExecutableName = "RunsformingRelay.exe",
+    [string]$ExecutableName = "TacoBot.exe",
     [string]$RestartArgument = "",
     [ValidateRange(1,30)][int]$MaxAttempts = 30
 )
@@ -132,10 +132,10 @@ if ($ParentProcessToWait -gt 0) { Wait-Process -Id $ParentProcessToWait -Timeout
 Get-ChildItem Env: | Where-Object { $_.Name -like '_PYI*' -or $_.Name -eq '_MEIPASS2' } | ForEach-Object { Remove-Item "Env:$($_.Name)" }
 $env:PYINSTALLER_RESET_ENVIRONMENT = '1'
 function Destination($file) {
-    if ($file -eq 'RunsformingRelay.exe') { return (Join-Path $Target $ExecutableName) }
+    if ($file -eq 'TacoBot.exe') { return (Join-Path $Target $ExecutableName) }
     return (Join-Path $Target $file)
 }
-$files = @('RunsformingRelay.exe', 'README.md', 'Files/ffmpeg.exe', 'Files/yt-dlp.exe')
+$files = @('TacoBot.exe', 'README.md', 'Files/ffmpeg.exe', 'Files/yt-dlp.exe')
 $installed = $false
 try {
 $backup = Join-Path $Stage 'backup'
@@ -222,7 +222,7 @@ def launch_installer(stage, target, restart_argument=''):
     script = write_install_script(stage)
     ready = stage / 'installer-ready'
     ready.unlink(missing_ok=True)
-    executable = Path(sys.executable).name if getattr(sys, 'frozen', False) else 'RunsformingRelay.exe'
+    executable = Path(sys.executable).name if getattr(sys, 'frozen', False) else 'TacoBot.exe'
     powershell = Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
     log_path = target / 'Files/update-launch.log'
     log_path.parent.mkdir(parents=True, exist_ok=True)

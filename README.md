@@ -1,4 +1,4 @@
-# Runsforming Audio Relay
+# TacoBot
 
 The relay lets the Railway-hosted bot play YouTube audio through a volunteer's
 Windows internet connection. The Discord bot token, database, permissions,
@@ -6,11 +6,20 @@ queues, and commands remain on Railway.
 
 ## Install
 
-1. Download `RunsformingRelay-Windows.zip` from a `relay-` GitHub release.
-2. Extract the complete ZIP. Keep `RunsformingRelay.exe` and `README.md` in
+Repository: https://github.com/dasaright/TacoBot
+
+If upgrading from a version released before the repository rename, download
+this version manually once. The older updater rejects download links containing
+the new repository name. Close the old relay, extract this ZIP into the same
+folder, and run `TacoBot.exe`. Keep `relay-config.json` and your clip folders.
+You may remove the old `RunsformingRelay.exe` after confirming TacoBot opens.
+Future updates use the TacoBot repository automatically.
+
+1. Download `TacoBot-Windows.zip` from a `relay-` GitHub release.
+2. Extract the complete ZIP. Keep `TacoBot.exe` and `README.md` in
    the main folder, with `ffmpeg.exe` and `yt-dlp.exe` inside `Files`.
-3. Run `RunsformingRelay.exe` and enter the Railway WebSocket URL and relay
-   token supplied by the bot owner.
+3. Run `TacoBot.exe` and enter your relay
+   token sent privately by the Discord bot after you use `!token`.
 4. Leave the program open while you are willing to relay audio.
 
 Ask the bot owner for a relay token before completing setup.
@@ -124,7 +133,7 @@ Files already in the selected folder and invalid files are skipped.
 ## Relay updates
 
 Update automatically is enabled by default. The program checks published
-`relay-` releases in dasaright/RunsFormingMusic on startup and every six hours.
+`relay-` releases in dasaright/TacoBot on startup and every six hours.
 Use Check for updates for a manual check; uncheck Update automatically to
 turn automatic updates off. The preference is saved in relay-config.json.
 
@@ -146,7 +155,7 @@ trigger a new executable build.
 
 The right pane lists your chosen local folder and the separate `sharedclips` folder beside the executable. Name sorts filenames; Shared toggles Local-first / Shared-first, alphabetically within each group. Click a filename to play. **Sync clips** uploads new files from `sharedclips` and downloads missing shared files. Local files are never uploaded. Put files into `sharedclips` to share them. Shared files are public in this repository. Sync adds files only; rename conflicts and keep clips under 20 MB. Updates preserve both folders.
 
-Bot administrator: configure `SHARED_CLIPS_GITHUB_TOKEN` on Railway with a fine-grained GitHub token restricted to `dasaright/RunsFormingMusic`, Contents read/write. Approved relay tokens authorize sync. The GitHub token stays on the bot and is never distributed in the executable.
+Bot administrator: configure `SHARED_CLIPS_GITHUB_TOKEN` on Railway with a fine-grained GitHub token restricted to `dasaright/TacoBot`, Contents read/write. Approved relay tokens authorize sync. The GitHub token stays on the bot and is never distributed in the executable.
 
 ## Personal relay tokens and updates
 

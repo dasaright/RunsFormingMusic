@@ -46,3 +46,22 @@ class ScrollTests(unittest.TestCase):
         w.root.after_idle.assert_called_once()
         w.flush_clip_position()
         w.position_clip_widgets.assert_called_once()
+
+    def test_resize_coalesces_until_drag_settles(self):
+        w = self.window()
+        w.clip_last_size = (800, 600)
+        w.listbox.winfo_width.return_value = 900
+        w.listbox.winfo_height.return_value = 650
+        w.defer_clip_resize()
+        w.position_clip_widgets.assert_not_called()
+        first = w.clip_resize_after
+        w.listbox.winfo_width.return_value = 950
+        w.defer_clip_resize()
+        w.root.after_cancel.assert_called_once_with(first)
+        self.assertEqual(w.root.after.call_count, 2)
+        self.assertEqual(w.root.after.call_args.args[0], 150)
+        w.schedule_clip_position()
+        w.root.after_idle.assert_not_called()
+        w.finish_clip_resize()
+        self.assertIsNone(w.clip_resize_after)
+        w.position_clip_widgets.assert_called_once()

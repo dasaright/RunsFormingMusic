@@ -1235,7 +1235,7 @@ class RelayWindow:
         self.header_drag = None
         self.column_order = clip_column_order(config.get("clip_column_order"))
         self.listbox.configure(displaycolumns=self.column_order)
-        self.listbox.bind("<Configure>", lambda event: self.position_clip_widgets())
+        self.listbox.bind("<Configure>", self.defer_clip_resize)
         self.listbox.bind("<Map>", lambda event: self.root.after_idle(self.settle_clip_tab_layout))
         self.listbox.column("shared", width=100, stretch=False, anchor="center")
         clip_scroll = ttk.Scrollbar(right, orient="vertical", command=self.scroll_clips)
@@ -1610,7 +1610,29 @@ class RelayWindow:
         elif abs(state["pending"]) >= 1:
             state["after"] = self.root.after(16, lambda: self.scroll_step(tree, state))
 
+    def defer_clip_resize(self, event=None):
+        size = (self.listbox.winfo_width(), self.listbox.winfo_height())
+        previous = getattr(self, "clip_last_size", None)
+        self.clip_last_size = size
+        if previous is None:
+            self.position_clip_widgets()
+            return
+        if size == previous:
+            return
+        pending = getattr(self, "clip_resize_after", None)
+        if pending is not None:
+            self.root.after_cancel(pending)
+        # Preserve existing graphics during the drag; update once it settles.
+        self.clip_resize_after = self.root.after(150, self.finish_clip_resize)
+
+    def finish_clip_resize(self):
+        self.clip_resize_after = None
+        self.clip_position_signature = None
+        self.position_clip_widgets()
+
     def schedule_clip_position(self):
+        if getattr(self, "clip_resize_after", None) is not None:
+            return
         if getattr(self, "clip_position_after", None) is None:
             self.clip_position_after = self.root.after_idle(self.flush_clip_position)
 
@@ -1706,16 +1728,16 @@ class RelayWindow:
             cell = self.clip_widgets[key]
             y = self.clip_row_indices[key] * self.clip_row_height
             for canvas in self.clip_canvases.values():
-                canvas.create_rectangle(0, y, int(canvas.cget("width")) if int(canvas.cget("width")) > 1 else 1000,
+                canvas.create_rectangle(0, y, 20000,
                                         y + self.clip_row_height, fill="#1b2027" if self.clip_row_indices[key] % 2 == 0 else "#191e25", outline="")
                 canvas.create_line(0, y+self.clip_row_height-1, 2000, y+self.clip_row_height-1, fill="#252d36")
             shared = self.clip_canvases["shared"]
             cx = self.clip_canvas_widths["shared"] / 2
             cy = y + self.clip_row_height / 2
             is_shared = self.clip_origins.get(key) == "Shared"
-            shared.create_rectangle(cx-8, cy-8, cx+8, cy+8, fill="#52d4ba" if is_shared else "#252d36", outline="#52d4ba" if is_shared else "#526170")
+            shared.create_rectangle(cx-8, cy-8, cx+8, cy+8, fill="#52d4ba" if is_shared else "#252d36", outline="#52d4ba" if is_shared else "#526170", tags=("shared_" + key,))
             if is_shared:
-                shared.create_line(cx-4, cy, cx-1, cy+3, cx+5, cy-4, fill="#10211e", width=2)
+                shared.create_line(cx-4, cy, cx-1, cy+3, cx+5, cy-4, fill="#10211e", width=2, tags=("shared_" + key,))
             volume = self.clip_canvases["volume"]
             cell["volume"] = (volume.create_line(0, 0, 0, 0, fill="#39434f", width=4, capstyle="round"),
                               volume.create_oval(0, 0, 0, 0, fill="#52d4ba", outline=""),
@@ -1790,6 +1812,21 @@ class RelayWindow:
             return self.open_clip_menu(key, event)
         return "break"
 
+    def resize_clip_graphics(self, widths):
+        previous = self.clip_canvas_widths
+        self.clip_canvas_widths = widths
+        for key in self.file_ids:
+            y = self.clip_row_indices[key] * self.clip_row_height
+            if widths["volume"] != previous["volume"]:
+                self.draw_clip_volume(key)
+            if widths["label"] != previous["label"]:
+                self.clip_canvases["label"].coords(self.clip_widgets[key]["label"][0],
+                    0, y, widths["label"], y + self.clip_row_height)
+            if widths["shared"] != previous["shared"]:
+                self.clip_canvases["shared"].move("shared_" + key,
+                    (widths["shared"] - previous["shared"]) / 2, 0)
+        self.clip_position_signature = None
+
     def position_clip_widgets(self):
         if not self.file_ids:
             for canvas in getattr(self, "clip_canvases", {}).values():
@@ -1799,7 +1836,7 @@ class RelayWindow:
             self.preload_clip_widgets()
         widths = {c: self.listbox.column(c, "width") for c in self.clip_canvases}
         if widths != self.clip_canvas_widths:
-            self.preload_clip_widgets()
+            self.resize_clip_graphics(widths)
         first_box = self.listbox.bbox(self.file_ids[0]) if self.listbox.yview()[0] == 0 else ()
         signature = (self.listbox.yview(), self.listbox.winfo_width(), self.listbox.winfo_height(), self.listbox.winfo_ismapped(),
                      tuple(self.listbox.cget("displaycolumns")), first_box[1] if first_box else None)
