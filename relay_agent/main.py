@@ -89,42 +89,79 @@ def reordered_columns(order, source, target):
 
 
 def style_relay(root):
-    root.configure(background="#f1f2f4")
+    root.configure(background="#14171c")
     style = ttk.Style(root)
     style.theme_use("clam")
-    style.configure(".", font=("Segoe UI", 10), background="#f1f2f4", foreground="#20252b")
-    style.configure("TFrame", background="#f1f2f4")
-    style.configure("Card.TFrame", background="#ffffff")
-    style.configure("TLabel", background="#f1f2f4")
-    style.configure("Card.TLabel", background="#ffffff")
+    style.configure(".", font=("Segoe UI", 10), background="#14171c", foreground="#e6edf3")
+    style.configure("TFrame", background="#14171c")
+    style.configure("Card.TFrame", background="#1b2027")
+    style.configure("TLabel", background="#14171c")
+    style.configure("Card.TLabel", background="#1b2027")
     style.configure("Title.TLabel", font=("Segoe UI", 23, "bold"))
-    style.configure("Muted.TLabel", foreground="#7c838e", font=("Segoe UI", 9))
-    style.configure("CardMuted.TLabel", background="#ffffff", foreground="#7c838e", font=("Segoe UI", 9))
-    style.configure("Song.TLabel", background="#ffffff", font=("Segoe UI", 17, "bold"))
-    style.configure("TButton", background="#ffffff", borderwidth=0, padding=(16, 10), relief="flat")
-    style.map("TButton", background=[("active", "#e5e8ed")], foreground=[("disabled", "#a5abb5")])
-    style.configure("Primary.TButton", background="#24272c", foreground="#ffffff")
-    style.map("Primary.TButton", background=[("active", "#414650")], foreground=[("disabled", "#969ba4")])
-    style.configure("TNotebook", background="#f1f2f4", borderwidth=0, tabmargins=0)
+    style.configure("Muted.TLabel", foreground="#a3adb9", font=("Segoe UI", 9))
+    style.configure("CardMuted.TLabel", background="#1b2027", foreground="#a3adb9", font=("Segoe UI", 9))
+    style.configure("Song.TLabel", background="#1b2027", font=("Segoe UI", 17, "bold"))
+    style.configure("TButton", background="#1b2027", borderwidth=0, padding=(16, 10), relief="flat")
+    style.map("TButton", background=[("active", "#2b3540")], foreground=[("disabled", "#66727f")])
+    style.configure("Primary.TButton", background="#52d4ba", foreground="#10211e")
+    style.map("Primary.TButton", background=[("active", "#75e4ce")], foreground=[("disabled", "#66727f")])
+    style.configure("TNotebook", background="#14171c", borderwidth=0, tabmargins=0)
     style.layout("TNotebook.Tab", [])
-    style.configure("SelectedTab.TButton", background="#ffffff", foreground="#172c4a", font=("Segoe UI", 11, "bold"), padding=(20, 15))
-    style.configure("OtherTab.TButton", background="#e7e9ed", foreground="#7c838e", font=("Segoe UI", 10), padding=(16, 8))
-    style.configure("TNotebook.Tab", padding=(26, 12), font=("Segoe UI", 11, "bold"), background="#e7e9ed", borderwidth=0)
-    style.map("TNotebook.Tab", background=[("selected", "#ffffff")], foreground=[("selected", "#20252b"), ("!selected", "#7c838e")])
-    style.configure("Treeview", background="#ffffff", fieldbackground="#ffffff", foreground="#303640", rowheight=36, borderwidth=0)
+    style.configure("SelectedTab.TButton", background="#1b2027", foreground="#52d4ba", font=("Segoe UI", 11, "bold"), padding=(20, 15))
+    style.configure("OtherTab.TButton", background="#252d36", foreground="#a3adb9", font=("Segoe UI", 10), padding=(16, 8))
+    style.configure("TNotebook.Tab", padding=(26, 12), font=("Segoe UI", 11, "bold"), background="#252d36", borderwidth=0)
+    style.map("TNotebook.Tab", background=[("selected", "#1b2027")], foreground=[("selected", "#e6edf3"), ("!selected", "#a3adb9")])
+    style.configure("Treeview", background="#1b2027", fieldbackground="#1b2027", foreground="#e6edf3", rowheight=36, borderwidth=0)
     style.configure("Soundboard.Treeview", rowheight=18, font=("Segoe UI", 9))
-    style.configure("Treeview.Heading", background="#172c4a", foreground="#ffffff", font=("Segoe UI", 10, "bold"), padding=(12, 12), relief="flat")
-    style.map("Treeview.Heading", background=[("active", "#233e60")], foreground=[("active", "#ffffff")])
-    style.map("Treeview", background=[("selected", "#e8edf5")], foreground=[("selected", "#20252b")])
-    style.configure("Clip.TFrame", background="#ffffff")
-    style.configure("Clip.TLabel", background="#ffffff", foreground="#7c838e", font=("Segoe UI", 9))
-    style.configure("TCheckbutton", background="#f1f2f4", padding=6)
-    style.configure("Horizontal.TScale", background="#ffffff", troughcolor="#e7e9ed", borderwidth=0)
+    style.configure("Treeview.Heading", background="#252d36", foreground="#c3cdd8", font=("Segoe UI", 10, "bold"), padding=(10, 7), relief="flat")
+    style.map("Treeview.Heading", background=[("active", "#2b3540")], foreground=[("active", "#e6edf3")])
+    style.map("Treeview", background=[("selected", "#25443f")], foreground=[("selected", "#e6edf3")])
+    style.configure("Clip.TFrame", background="#1b2027")
+    style.configure("Clip.TLabel", background="#1b2027", foreground="#a3adb9", font=("Segoe UI", 9))
+    style.configure("TCheckbutton", background="#14171c", padding=6)
+    style.configure("Horizontal.TScale", background="#52d4ba", troughcolor="#252d36", borderwidth=0)
+    style.configure("TEntry", fieldbackground="#1b2027", foreground="#e6edf3", insertcolor="#52d4ba",
+                    bordercolor="#39434f", lightcolor="#39434f", darkcolor="#39434f", padding=5)
+    style.configure("TCombobox", fieldbackground="#1b2027", background="#252d36", foreground="#e6edf3",
+                    arrowcolor="#a3adb9", bordercolor="#39434f")
+    style.map("TCombobox", fieldbackground=[("readonly", "#1b2027")], foreground=[("readonly", "#e6edf3")])
+    style.map("TCheckbutton", background=[("active", "#14171c")], foreground=[("active", "#e6edf3")])
+    style.configure("TScrollbar", background="#39434f", troughcolor="#14171c", arrowcolor="#a3adb9",
+                    borderwidth=0, arrowsize=12)
+    style.map("TScrollbar", background=[("active", "#526170")])
+    root.option_add("*TCombobox*Listbox.background", "#1b2027")
+    root.option_add("*TCombobox*Listbox.foreground", "#e6edf3")
+    root.option_add("*TCombobox*Listbox.selectBackground", "#25443f")
+    # Rounded, stretchable button surfaces without adding native widgets per clip.
+    root.graphite_images = []
+    for button_style, normal, hover in (
+        ("TButton", "#202730", "#2d3843"),
+        ("Primary.TButton", "#52d4ba", "#75e4ce"),
+        ("SelectedTab.TButton", "#25443f", "#2e554d"),
+        ("OtherTab.TButton", "#1b2027", "#252d36"),
+    ):
+        pictures = []
+        for color in (normal, hover, "#1b2027"):
+            picture = tk.PhotoImage(master=root, width=18, height=18)
+            for y in range(18):
+                for x in range(18):
+                    dx, dy = max(6-x, 0, x-11), max(6-y, 0, y-11)
+                    if dx*dx + dy*dy <= 36:
+                        picture.put(color, (x, y))
+            pictures.append(picture)
+        root.graphite_images.extend(pictures)
+        element = "Graphite." + button_style + ".surface"
+        style.element_create(element, "image", pictures[0], ("disabled", pictures[2]),
+                             ("active", pictures[1]), border=7, sticky="nsew")
+        style.layout(button_style, [(element, {"sticky": "nsew", "children":
+            [("Button.padding", {"sticky": "nsew", "children": [("Button.label", {"sticky": "nsew"})]})]})])
+
+
 
 
 def themed_menu(parent):
-    return tk.Menu(parent, tearoff=False, background="#ffffff", foreground="#303640",
-                   activebackground="#e8edf5", activeforeground="#172c4a",
+    return tk.Menu(parent, tearoff=False, background="#1b2027", foreground="#e6edf3",
+                   activebackground="#25443f", activeforeground="#52d4ba",
                    relief="flat", borderwidth=0, font=("Segoe UI", 10))
 
 
@@ -921,7 +958,7 @@ class RelayWindow:
         self.queue_view.bind("<ButtonPress-1>", self.song_mouse_down)
         self.queue_view.bind("<ButtonRelease-1>", self.song_selected)
         self.queue_view.column("song", width=400)
-        self.queue_view.tag_configure("current", background="#dceeff", foreground="#14467a", font=("Segoe UI", 10, "bold"))
+        self.queue_view.tag_configure("current", background="#25443f", foreground="#75e4ce", font=("Segoe UI", 10, "bold"))
         queue_scroll = ttk.Scrollbar(queue_pane, orient="vertical", command=self.queue_view.yview)
         self.queue_view.configure(yscrollcommand=queue_scroll.set)
         queue_scroll.pack(side="right", fill="y")
@@ -1391,7 +1428,7 @@ class RelayWindow:
         self.clip_canvases = {}
         self.clip_slider_drag = None
         for column in ("volume", "label"):
-            canvas = tk.Canvas(self.listbox, background="#ffffff", borderwidth=0,
+            canvas = tk.Canvas(self.listbox, background="#1b2027", borderwidth=0,
                                highlightthickness=0, yscrollincrement=1)
             self.clip_canvases[column] = canvas
             self.bind_smooth_scroll(canvas, self.listbox)
@@ -1425,17 +1462,17 @@ class RelayWindow:
             cell = self.clip_widgets[key]
             y = self.clip_row_indices[key] * self.clip_row_height
             volume = self.clip_canvases["volume"]
-            cell["volume"] = (volume.create_line(0, 0, 0, 0, fill="#adb6c3", width=2),
-                              volume.create_oval(0, 0, 0, 0, fill="#29496b", outline=""),
-                              volume.create_text(0, 0, anchor="e", fill="#26364a", font=("Segoe UI", 9)))
+            cell["volume"] = (volume.create_line(0, 0, 0, 0, fill="#39434f", width=2),
+                              volume.create_oval(0, 0, 0, 0, fill="#52d4ba", outline=""),
+                              volume.create_text(0, 0, anchor="e", fill="#c3cdd8", font=("Segoe UI", 9)))
             self.draw_clip_volume(key)
             label = self.clip_canvases["label"]
             current = self.clip_setting(key).get("label", "")
-            color = self.config.get("clip_labels", {}).get(current, "#ffffff")
-            cell["label"] = (label.create_rectangle(0, y, self.clip_canvas_widths["label"], y + self.clip_row_height,
+            color = self.config.get("clip_labels", {}).get(current, "#1b2027")
+            cell["label"] = (label.create_rectangle(5, y + 2, min(self.clip_canvas_widths["label"] - 5, 20 + len(current or "Select…") * 7), y + self.clip_row_height - 2,
                                                     fill=color, outline=""),
                              label.create_text(10, y + self.clip_row_height / 2, text=current or "Select…",
-                                               anchor="w", fill="#26364a", font=("Segoe UI", 9)))
+                                               anchor="w", fill="#14231f" if current and color != "#1b2027" else "#c3cdd8", font=("Segoe UI", 9)))
             menu = cell["menu"]
             menu.delete(0, "end")
             for name in ("", *sorted(self.config.get("clip_labels", {}), key=str.casefold)):
