@@ -62,7 +62,7 @@ class PiperSpeech:
                 options.intra_op_num_threads = 2
                 options.inter_op_num_threads = 1
                 self.voice = PiperVoice(
-                    config=PiperConfig.from_dict(json.loads(Path(str(model) + '.json').read_text())),
+                    config=PiperConfig.from_dict(json.loads(Path(str(model) + '.json').read_text(encoding='utf-8'))),
                     session=onnxruntime.InferenceSession(str(model), sess_options=options,
                                                          providers=['CPUExecutionProvider']))
             temporary = target.with_suffix('.tmp')

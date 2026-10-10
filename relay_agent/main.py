@@ -2419,6 +2419,11 @@ if __name__ == "__main__":
             verify_tools()
             from piper import PiperVoice
             assert PiperVoice
+            if os.getenv("TACOBOT_TTS_TEST_DIR"):
+                import wave
+                speech_test = PiperSpeech(os.environ["TACOBOT_TTS_TEST_DIR"])
+                with wave.open(str(speech_test.synthesize("Packaged TacoBot speech test."))) as audio:
+                    assert audio.getnframes() > 0
             import sounddevice
             assert sounddevice.get_portaudio_version()[0] > 0
             test_root = create_root()

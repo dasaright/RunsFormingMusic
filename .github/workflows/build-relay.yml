@@ -97,8 +97,8 @@ jobs:
 
       - name: Verify real Piper synthesis
         run: >-
-          python -c "import tempfile,wave; from relay_agent.tts import PiperSpeech;
-          speech=PiperSpeech(tempfile.mkdtemp());
+          python -c "import wave; from relay_agent.tts import PiperSpeech;
+          speech=PiperSpeech('tts-build-test');
           output=speech.synthesize('TacoBot speech test.');
           audio=wave.open(str(output)); assert audio.getnframes()>0; audio.close();
           print('Piper model download and real speech synthesis verified')"
@@ -106,6 +106,7 @@ jobs:
       - name: Verify packaged executable and dependencies
         shell: pwsh
         run: |
+          $env:TACOBOT_TTS_TEST_DIR = (Resolve-Path "tts-build-test").Path
           $process = Start-Process -FilePath (Resolve-Path "dist/TacoBot.exe") -ArgumentList "--self-test" -PassThru
           if (-not $process.WaitForExit(60000)) {
             taskkill /PID $process.Id /T /F
