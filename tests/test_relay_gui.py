@@ -130,6 +130,17 @@ class HeaderDragTests(unittest.TestCase):
                 window = RelayWindow(root, {})
             window.save = Mock(); window.send = Mock()
             root.update()
+            # The lists must shrink before the footer loses its allocated space.
+            for size in ('1180x780', '1160x620', '1400x900'):
+                root.geometry(size); root.update()
+                for button in window.clip_action_buttons:
+                    self.assertTrue(button.winfo_viewable())
+                    self.assertGreater(button.winfo_height(), 1)
+                    self.assertLessEqual(button.winfo_rooty() + button.winfo_height(),
+                                         root.winfo_rooty() + root.winfo_height())
+                self.assertLessEqual(window.notebook.winfo_y() + window.notebook.winfo_height(),
+                                     window.status_label.winfo_y())
+            root.geometry('1180x780'); root.update()
             self.assertEqual(len(window.notebook.tabs()), 2)
             self.assertFalse(window.direct_mode.get())
             self.assertEqual(window.direct_checkbox.cget('text'), 'Play soundboard directly instead of through bot')

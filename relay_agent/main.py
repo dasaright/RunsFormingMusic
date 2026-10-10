@@ -986,11 +986,13 @@ class RelayWindow:
         self.clip_menu.add_cascade(label="Change Label Color", menu=color_menu)
         self.context_clip_id = None
         self.listbox.bind("<Button-3>", self.clip_context_menu)
-        ttk.Label(root, textvariable=self.status, wraplength=1000, style="Muted.TLabel").pack(anchor="w", padx=28, pady=(14, 4))
+        self.status_label = ttk.Label(root, textvariable=self.status, wraplength=1000, style="Muted.TLabel")
         ttk.Label(right, text="Drop audio files anywhere in this window to copy them to your local folder.", style="Muted.TLabel", wraplength=900).pack(anchor="w", pady=6)
         self.register_drop_targets(root)
         update_bar = ttk.Frame(root)
-        update_bar.pack(fill="x", padx=16, pady=4)
+        # Reserve the footer before the expanding notebook consumes the window.
+        update_bar.pack(side="bottom", fill="x", padx=28, pady=(4, 12), before=self.notebook)
+        self.status_label.pack(side="bottom", fill="x", padx=28, pady=(6, 4), before=self.notebook)
         self.clip_action_buttons = []
         for text, command in (("Refresh files", self.refresh_files), ("Stop all clips", self.stop), ("Sync clips", self.sync_shared)):
             button = ttk.Button(update_bar, text=text, command=command)
