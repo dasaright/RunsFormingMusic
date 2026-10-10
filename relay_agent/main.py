@@ -18,6 +18,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk, simpledialog, messagebox
 from pathlib import Path
 
+from PIL import Image, ImageDraw, ImageTk
 import certifi
 from websockets.asyncio.client import connect
 if __package__:
@@ -108,46 +109,98 @@ class SleekScale(tk.Canvas):
         self.draw()
 
     def change(self, event):
-        value = max(0, min(100, (event.x-7) / max(1, self.winfo_width()-14) * 100))
+        value = max(0, min(100, (event.x-8) / max(1, self.winfo_width()-16) * 100))
         self.variable.set(value)
         self.command(str(value))
 
     def draw(self, *args):
+        width = self.winfo_width() if self.winfo_width() > 1 else int(self.cget("width"))
+        value = max(0, min(100, self.variable.get()))
+        signature = (width, value)
+        if signature == getattr(self, "draw_signature", None):
+            return
+        self.draw_signature = signature
+        factor = 4
+        image = Image.new("RGBA", (width * factor, 28 * factor), "#14171c")
+        draw = ImageDraw.Draw(image)
+        x = 8 + (width-16) * value/100
+        draw.rounded_rectangle((8*factor,12*factor,(width-8)*factor,16*factor), radius=2*factor, fill="#303a45")
+        if x > 8:
+            draw.rounded_rectangle((8*factor,12*factor,x*factor,16*factor), radius=2*factor, fill="#52d4ba")
+        draw.ellipse(((x-6)*factor,8*factor,(x+6)*factor,20*factor), fill="#d9fff5")
+        self.track_image = ImageTk.PhotoImage(image.resize((width,28), Image.Resampling.LANCZOS), master=self)
         self.delete("all")
-        width = max(self.winfo_width(), int(self.cget("width")))
-        x = 7 + (width-14) * self.variable.get()/100
-        self.create_line(7, 14, width-7, 14, fill="#303a45", width=4, capstyle="round")
-        self.create_line(7, 14, x, 14, fill="#52d4ba", width=4, capstyle="round")
-        self.create_oval(x-6, 8, x+6, 20, fill="#d9fff5", outline="")
+        self.create_image(0, 0, anchor="nw", image=self.track_image)
+
+
+def render_button_icon(name, size=28, color="#52d4ba"):
+    # Draw at 4x the actual display resolution, then antialias the edges.
+    scale = size * 4 / 24
+    image = Image.new("RGBA", (size*4, size*4))
+    draw = ImageDraw.Draw(image)
+    stroke = max(1, round(1.7*scale))
+    def line(points):
+        pts = [(round(x*scale), round(y*scale)) for x,y in points]
+        draw.line(pts, fill=color, width=stroke, joint="curve")
+        radius=stroke/2
+        for x,y in (pts[0],pts[-1]):
+            draw.ellipse((x-radius,y-radius,x+radius,y+radius), fill=color)
+    def arc(box, start, end):
+        draw.arc(tuple(round(v*scale) for v in box), start, end, fill=color, width=stroke)
+    if name == "refresh":
+        arc((4,4,20,20), 35, 315)
+        line([(17.6,4.8),(20,7.8),(15.5,8)])
+    elif name == "check":
+        arc((3,3,21,21),0,360)
+        line([(7.5,12),(10.5,15),(16.5,8.5)])
+    elif name == "sync":
+        line([(4,7),(20,7),(16,3)])
+        line([(20,17),(4,17),(8,21)])
+    elif name == "stop":
+        draw.rounded_rectangle((6*scale,6*scale,18*scale,18*scale),radius=2*scale,fill=color)
+    elif name == "folder":
+        line([(3,18),(3,6),(10,6),(12,9),(21,9),(21,18),(3,18)])
+        line([(4,12),(20,12)])
+    elif name == "download":
+        line([(12,3),(12,15)])
+        line([(7,10),(12,15),(17,10)])
+        line([(4,17),(4,21),(20,21),(20,17)])
+    elif name == "audio":
+        line([(3,9),(7,9),(12,5),(12,19),(7,15),(3,15),(3,9)])
+        arc((9,5,21,19),300,60)
+        arc((12,8,18,16),300,60)
+    elif name == "previous":
+        line([(18,5),(7,12),(18,19),(18,5)])
+        line([(4,5),(4,19)])
+    elif name == "next":
+        line([(6,5),(17,12),(6,19),(6,5)])
+        line([(20,5),(20,19)])
+    elif name == "soundboard":
+        for x,height in ((4,8),(8,14),(12,20),(16,14),(20,8)):
+            line([(x,12-height/2),(x,12+height/2)])
+    else:
+        line([(7,4),(20,12),(7,20),(7,4)])
+    return image.resize((size,size), Image.Resampling.LANCZOS)
 
 
 def add_button_icons(root):
-    # Rasterize simple line icons at 24px instead of enlarging button labels.
-    paths = {
-        "refresh": [(18,6,9,4),(9,4,4,10),(4,10,5,17),(5,17,12,20),(12,20,19,16),(18,6,18,12),(18,12,12,12)],
-        "sync": [(3,7,20,7),(20,7,16,3),(3,17,20,17),(3,17,7,21)],
-        "stop": [(6,6,18,6),(18,6,18,18),(18,18,6,18),(6,18,6,6)],
-        "folder": [(3,7,10,7),(10,7,12,10),(12,10,21,10),(21,10,19,19),(19,19,3,19),(3,19,3,7)],
-        "download": [(12,3,12,16),(12,16,7,11),(12,16,17,11),(4,18,4,21),(4,21,20,21),(20,21,20,18)],
-        "audio": [(3,10,7,10),(7,10,12,5),(12,5,12,19),(12,19,7,14),(7,14,3,14),(3,14,3,10),(17,7,20,12),(20,12,17,17)],
-        "play": [(7,4,20,12),(20,12,7,20),(7,20,7,4)],
-    }
+    size = max(28, round(28 * float(root.tk.call("tk", "scaling")) / (96/72)))
+    cache = {}
     def visit(widget):
         for child in widget.winfo_children():
             if isinstance(child, ttk.Button):
                 text = child.cget("text")
                 lower = text.lower()
-                name = next((key for key, terms in (("refresh",("refresh","check")),("sync",("sync",)),("stop",("stop",)),("folder",("folder",)),("download",("install",)),("audio",("audio",)),("play",("play","next","previous","youtube","soundboard"))) if any(term in lower for term in terms)), "play")
-                image = tk.PhotoImage(master=root, width=24, height=24)
-                for x1,y1,x2,y2 in paths[name]:
-                    steps=max(abs(x2-x1),abs(y2-y1),1)*2
-                    for i in range(steps+1):
-                        x,y=round(x1+(x2-x1)*i/steps),round(y1+(y2-y1)*i/steps)
-                        image.put("#52d4ba", (x,y,min(x+2,24),min(y+2,24)))
-                child.graphite_icon = image
-                child.configure(image=image, compound="left", text=text.lstrip("↻⇄■ "))
+                name = next((key for key, terms in (("refresh",("refresh",)),("check",("check",)),("sync",("sync",)),("stop",("stop",)),("folder",("folder",)),("download",("install",)),("audio",("audio",)),("previous",("previous",)),("next",("next",)),("soundboard",("soundboard",)),("play",("play","youtube"))) if any(term in lower for term in terms)), "play")
+                color = "#10211e" if child.cget("style") == "Primary.TButton" else "#52d4ba"
+                key = (name,color)
+                if key not in cache:
+                    cache[key] = ImageTk.PhotoImage(render_button_icon(name,size,color), master=root)
+                child.graphite_icon = cache[key]
+                child.configure(image=cache[key], compound="left", text=text.lstrip("↻⇄■ "))
             visit(child)
     visit(root)
+
 
 
 def style_relay(root):
@@ -1003,7 +1056,7 @@ class RelayWindow:
         self.agent = RelayAgent(config)
         self.loop = asyncio.new_event_loop()
         self.file_ids = []
-        root.title("Runsforming Audio Relay")
+        root.title("TacoBot")
         root.geometry("1180x780")
         root.minsize(1160, 620)
         style_relay(root)
@@ -1020,7 +1073,7 @@ class RelayWindow:
         mark.pack(side="left", padx=(0, 10))
         for x, height in zip((5, 11, 17, 23, 29), (8, 18, 28, 18, 8)):
             mark.create_line(x, 16-height/2, x, 16+height/2, fill="#52d4ba", width=3, capstyle="round")
-        ttk.Label(brand, text="RunsFormingMusic", style="Brand.TLabel").pack(side="left")
+        ttk.Label(brand, text="TacoBot", style="Brand.TLabel").pack(side="left")
         audio_bar = ttk.Frame(top_bar)
         audio_bar.pack(fill="x", pady=(22, 0))
         ttk.Style(root).configure("Compact.TButton", padding=(6, 7), font=("Segoe UI", 9))
@@ -1125,7 +1178,8 @@ class RelayWindow:
         self.bot_clip_volume = tk.DoubleVar(value=max(0, min(100, config.get("bot_clip_volume", 100))))
         self.bot_volume_text = tk.StringVar(value=f"{round(self.bot_clip_volume.get())}%")
         SleekScale(search_bar, variable=self.bot_clip_volume, command=self.set_bot_clip_volume, width=100).pack(side="left", padx=(6, 4))
-        ttk.Label(search_bar, textvariable=self.bot_volume_text, width=4, style="Muted.TLabel").pack(side="left")
+        self.bot_volume_label = ttk.Label(search_bar, textvariable=self.bot_volume_text, width=6, anchor="w", style="Muted.TLabel")
+        self.bot_volume_label.pack(side="left", padx=(0, 6))
         details = ttk.Frame(right)
         details.pack(fill="x", pady=(0, 8))
         ttk.Label(details, text="Click a clip to play • Right-click to manage", anchor="e", style="Muted.TLabel").pack(fill="x")
@@ -1192,7 +1246,7 @@ class RelayWindow:
         self.refresh_button.pack(side="left", anchor="center", padx=(0, 6), before=self.sync_button)
         # Toolbar and search retain the same command handlers as the previous layout.
         self.clip_action_buttons = [self.refresh_button, self.stop_clips_button, self.sync_button]
-        ttk.Label(update_bar, text=f"RunsFormingMusic v1.{RELAY_BUILD}", style="Muted.TLabel").pack(side="right")
+        ttk.Label(update_bar, text=f"TacoBot v1.{RELAY_BUILD}", style="Muted.TLabel").pack(side="right")
         ttk.Label(update_bar, textvariable=self.identity, style="Muted.TLabel").pack(side="right", padx=18)
         add_button_icons(root)
         root.update_idletasks()
@@ -2113,7 +2167,7 @@ class RelayWindow:
                     messagebox.showerror("Could not edit clip", event["clip_edit_error"], parent=self.root)
                 self.refresh_files()
             if event.get("relay_name"):
-                self.root.title("RunsForming Music — " + event["relay_name"])
+                self.root.title("TacoBot — " + event["relay_name"])
                 self.identity.set(event["relay_name"] + " • Personal relay")
                 self.save()
             if event.get("token_required"):

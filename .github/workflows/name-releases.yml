@@ -43,7 +43,7 @@ jobs:
               shutil.rmtree(stage)
               print('Published update downloaded publicly; checksum and layout verified:', update['build'])
           PYCODE
-      - name: Apply RunsFormingMusic version titles
+      - name: Apply TacoBot version titles
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -54,7 +54,7 @@ jobs:
             if [[ "$tag" =~ ^relay-([0-9]+)$ ]]; then
               build="${BASH_REMATCH[1]}"
               if (( build >= 3 )); then
-                gh release edit "$tag" --title "RunsFormingMusic v1.$build"
+                gh release edit "$tag" --title "TacoBot v1.$build"
               fi
             fi
           done

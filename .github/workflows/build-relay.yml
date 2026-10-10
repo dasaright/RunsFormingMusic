@@ -164,7 +164,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "relay-${{ github.run_number }}"
-          gh release create $tag "RunsformingRelay-Windows.zip" "relay-update.json" --target $env:GITHUB_SHA --title "RunsFormingMusic v1.${{ github.run_number }}" --notes "Portable Windows relay with automatic updates. Keep relay-config.json when upgrading." --draft
+          gh release create $tag "RunsformingRelay-Windows.zip" "relay-update.json" --target $env:GITHUB_SHA --title "TacoBot v1.${{ github.run_number }}" --notes "Portable Windows relay with automatic updates. Keep relay-config.json when upgrading." --draft
           if ($LASTEXITCODE -ne 0) { throw "Could not create relay release" }
           gh release edit $tag --draft=false --latest=true
           if ($LASTEXITCODE -ne 0) { throw "Could not publish relay release" }
