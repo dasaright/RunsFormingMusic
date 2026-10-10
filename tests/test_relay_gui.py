@@ -195,7 +195,7 @@ class HeaderDragTests(unittest.TestCase):
             self.assertEqual(window.update_button.master, window.direct_checkbox.master)
             self.assertEqual(window.clip_action_buttons[0].master, window.direct_checkbox.master)
             from tkinter import ttk
-            self.assertEqual(int(ttk.Style(root).lookup('Soundboard.Treeview', 'rowheight')), 18)
+            self.assertEqual(int(ttk.Style(root).lookup('Soundboard.Treeview', 'rowheight')), 44)
             window.header_drag = {'column':'volume','x':100,'moved':True}
             # Drop on the Shared header using its actual on-screen coordinate.
             box = window.listbox.bbox('clip','shared')

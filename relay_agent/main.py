@@ -1081,6 +1081,7 @@ class RelayWindow:
         self.sync_button.pack(side="right", anchor="center", padx=(6, 0))
         self.refresh_button = ttk.Button(audio_bar, text="↻  Refresh", style="Compact.TButton", command=self.refresh_files)
         self.refresh_button.pack(side="right", anchor="center", padx=(6, 0))
+        # Toolbar and search retain the same command handlers as the previous layout.
         self.clip_action_buttons = [self.refresh_button, self.stop_clips_button, self.sync_button]
         ttk.Label(update_bar, text=f"RunsFormingMusic v1.{RELAY_BUILD}", style="Muted.TLabel").pack(side="right")
         ttk.Label(update_bar, textvariable=self.identity, style="Muted.TLabel").pack(side="right", padx=18)

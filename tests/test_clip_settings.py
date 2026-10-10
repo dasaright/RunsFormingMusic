@@ -49,6 +49,7 @@ class ClipSettingsTests(unittest.TestCase):
             window.listbox.insert("", "end", iid="a", values=("Clip", "", "Local", ""))
             window.file_ids = ["a"]
             window.clip_widgets = {}
+            window.clip_origins = {"a": "Local"}
             root.update()
             window.position_clip_widgets()
             root.update()
@@ -90,6 +91,7 @@ class ClipSettingsTests(unittest.TestCase):
                         "clip_settings": {str(i): {"label": "Test"} for i in range(100)}}
             w.file_ids = list(w.config["clip_settings"])
             w.clip_widgets = {}
+            w.clip_origins = {key: "Shared" for key in w.file_ids}
             w.listbox = ttk.Treeview(root, columns=("name", "volume", "shared", "label"), show="headings")
             w.listbox.pack()
             for key in w.file_ids:
@@ -111,7 +113,7 @@ class ClipSettingsTests(unittest.TestCase):
                     self.assertEqual(w.clip_widgets, original)
                     self.assertAlmostEqual(w.clip_canvases['label'].canvasy(0), w.clip_scroll_offset, delta=1)
             self.assertEqual({c: canvas.find_all() for c, canvas in w.clip_canvases.items()}, item_ids)
-            self.assertEqual(len(w.listbox.winfo_children()), 2)
+            self.assertEqual(len(w.listbox.winfo_children()), 3)
             # Canvas row hit testing follows the Treeview scroll position.
             w.listbox.yview_moveto(.5)
             w.position_clip_widgets()
