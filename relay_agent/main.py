@@ -933,6 +933,7 @@ class RelayWindow:
         root.bind("<Control-V>", self.paste_youtube_link)
         search_bar = ttk.Frame(right)
         search_bar.pack(fill="x", pady=(0, 10))
+        # Keep stop beside search while library and audio settings stay in the top toolbar.
         self.stop_clips_button = ttk.Button(search_bar, text="Stop all clips", style="Compact.TButton", command=self.stop)
         self.stop_clips_button.pack(side="left", padx=(0, 10))
         ttk.Label(search_bar, text="Search clips", style="Muted.TLabel").pack(side="left", padx=(0, 6))
