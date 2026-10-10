@@ -443,7 +443,7 @@ def youtube_stream_args(config, url):
     # Keep downloads below a burst that can fill residential router buffers.
     return youtube_common_args(config) + [
         "--format", "bestaudio/best[height<=360]", "--limit-rate", "256K",
-        "--concurrent-fragments", "1", "--output", "-", url,
+        "--concurrent-fragments", "1", "--no-progress", "--output", "-", url,
     ]
 
 
