@@ -140,10 +140,10 @@ class HeaderDragTests(unittest.TestCase):
                     self.assertLessEqual(button.winfo_rooty() + button.winfo_height(),
                                          root.winfo_rooty() + root.winfo_height())
                 self.assertLessEqual(window.notebook.winfo_y() + window.notebook.winfo_height(),
-                                     window.status_label.winfo_y())
+                                     window.status_label.winfo_rooty() - root.winfo_rooty())
             root.geometry('1180x780'); window.notebook.select(0); root.update()
-            self.assertEqual(window.direct_checkbox.master, window.tab_buttons[0].master)
-            self.assertEqual(int(window.clip_search_entry.cget("width")), 10)
+            self.assertNotEqual(window.direct_checkbox.master, window.tab_buttons[0].master)
+            self.assertEqual(int(window.clip_search_entry.cget("width")), 28)
             self.assertEqual(window.stop_clips_button.master, window.clip_search_entry.master)
             window.notebook.select(1); root.update()
             self.assertLess(window.stop_clips_button.winfo_x(), window.clip_search_entry.winfo_x())
@@ -156,7 +156,7 @@ class HeaderDragTests(unittest.TestCase):
 
             self.assertEqual(len(window.notebook.tabs()), 2)
             self.assertFalse(window.direct_mode.get())
-            self.assertEqual(window.direct_checkbox.cget('text'), 'Play clips directly')
+            self.assertEqual(window.direct_checkbox.cget('text'), 'Direct')
             self.assertEqual(window.direct_checkbox.master, window.auto_update_checkbox.master)
             self.assertFalse(hasattr(window, 'destination'))
             self.assertGreater(window.tab_buttons[0].winfo_height(), window.tab_buttons[1].winfo_height())
@@ -181,7 +181,7 @@ class HeaderDragTests(unittest.TestCase):
             self.assertEqual(window.listbox.get_children(), ('clip',))
             window.clip_search.set(''); root.update()
             self.assertGreater(window.tab_buttons[1].winfo_height(), window.tab_buttons[0].winfo_height())
-            self.assertEqual(len(window.clip_canvases), 2)
+            self.assertEqual(len(window.clip_canvases), 3)
             window.listbox.column('label', width=100)
             root.update()
             total_width = sum(window.listbox.column(c, 'width') for c in window.column_order)
@@ -191,9 +191,9 @@ class HeaderDragTests(unittest.TestCase):
             root.tk.call(label_menu['postcommand'])
             self.assertEqual(window.listbox.selection(), ('clip',))
             self.assertFalse(any(call.args[0].get('type') == 'local_play' for call in window.send.call_args_list))
-            self.assertEqual(window.toolbar_buttons[0].master, window.tab_buttons[0].master)
+            self.assertEqual(window.toolbar_buttons[0].master, window.direct_checkbox.master)
             self.assertEqual(window.update_button.master, window.direct_checkbox.master)
-            self.assertEqual(window.clip_action_buttons[0].master, window.tab_buttons[0].master)
+            self.assertEqual(window.clip_action_buttons[0].master, window.direct_checkbox.master)
             from tkinter import ttk
             self.assertEqual(int(ttk.Style(root).lookup('Soundboard.Treeview', 'rowheight')), 18)
             window.header_drag = {'column':'volume','x':100,'moved':True}

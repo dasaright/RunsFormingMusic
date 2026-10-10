@@ -88,6 +88,13 @@ def reordered_columns(order, source, target):
     return result
 
 
+def rounded_badge(canvas, x1, y1, x2, y2, color):
+    r = min(6, (y2-y1)/2)
+    return canvas.create_polygon(x1+r,y1,x2-r,y1,x2,y1,x2,y1+r,x2,y2-r,x2,y2,
+                                 x2-r,y2,x1+r,y2,x1,y2,x1,y2-r,x1,y1+r,x1,y1,
+                                 smooth=True, splinesteps=12, fill=color, outline="")
+
+
 def style_relay(root):
     root.configure(background="#14171c")
     style = ttk.Style(root)
@@ -107,13 +114,13 @@ def style_relay(root):
     style.map("Primary.TButton", background=[("active", "#75e4ce")], foreground=[("disabled", "#66727f")])
     style.configure("TNotebook", background="#14171c", borderwidth=0, tabmargins=0)
     style.layout("TNotebook.Tab", [])
-    style.configure("SelectedTab.TButton", background="#1b2027", foreground="#52d4ba", font=("Segoe UI", 11, "bold"), padding=(20, 15))
+    style.configure("SelectedTab.TButton", background="#1b2027", foreground="#52d4ba", font=("Segoe UI", 11, "bold"), padding=(20, 12))
     style.configure("OtherTab.TButton", background="#252d36", foreground="#a3adb9", font=("Segoe UI", 10), padding=(16, 8))
     style.configure("TNotebook.Tab", padding=(26, 12), font=("Segoe UI", 11, "bold"), background="#252d36", borderwidth=0)
     style.map("TNotebook.Tab", background=[("selected", "#1b2027")], foreground=[("selected", "#e6edf3"), ("!selected", "#a3adb9")])
     style.configure("Treeview", background="#1b2027", fieldbackground="#1b2027", foreground="#e6edf3", rowheight=36, borderwidth=0)
-    style.configure("Soundboard.Treeview", rowheight=18, font=("Segoe UI", 9))
-    style.configure("Treeview.Heading", background="#252d36", foreground="#c3cdd8", font=("Segoe UI", 10, "bold"), padding=(10, 7), relief="flat")
+    style.configure("Soundboard.Treeview", rowheight=44, font=("Segoe UI", 10))
+    style.configure("Treeview.Heading", background="#202730", foreground="#c3cdd8", font=("Segoe UI", 10, "bold"), padding=(10, 7), relief="flat")
     style.map("Treeview.Heading", background=[("active", "#2b3540")], foreground=[("active", "#e6edf3")])
     style.map("Treeview", background=[("selected", "#25443f")], foreground=[("selected", "#e6edf3")])
     style.configure("Clip.TFrame", background="#1b2027")
@@ -132,6 +139,23 @@ def style_relay(root):
     root.option_add("*TCombobox*Listbox.background", "#1b2027")
     root.option_add("*TCombobox*Listbox.foreground", "#e6edf3")
     root.option_add("*TCombobox*Listbox.selectBackground", "#25443f")
+    root.graphite_toggle_images = []
+    for color, knob_x in (("#39434f", 10), ("#52d4ba", 28), ("#252d36", 10)):
+        switch = tk.PhotoImage(master=root, width=40, height=22)
+        for y in range(22):
+            for x in range(40):
+                dx = max(10-x, 0, x-29)
+                if dx*dx + (y-10.5)**2 <= 100:
+                    switch.put(color, (x, y))
+                if (x-knob_x)**2 + (y-10.5)**2 <= 56:
+                    switch.put("#e6edf3", (x, y))
+        root.graphite_toggle_images.append(switch)
+    switches = root.graphite_toggle_images
+    style.element_create("Graphite.switch", "image", switches[0],
+                         ("disabled", switches[2]), ("selected", switches[1]), sticky="w")
+    style.layout("TCheckbutton", [("Checkbutton.padding", {"sticky": "nsew", "children":
+        [("Graphite.switch", {"side": "left", "sticky": "w"}),
+         ("Checkbutton.label", {"side": "left", "sticky": "w"})]})])
     # Rounded, stretchable button surfaces without adding native widgets per clip.
     root.graphite_images = []
     for button_style, normal, hover in (
@@ -879,8 +903,17 @@ class RelayWindow:
         top_bar.pack(fill="x", padx=28, pady=(18, 8))
         tabs_bar = ttk.Frame(top_bar)
         tabs_bar.pack(fill="x")
-        audio_bar = tabs_bar
-        ttk.Style(root).configure("Compact.TButton", padding=(6, 6), font=("Segoe UI", 9))
+        ttk.Style(root).configure("Brand.TLabel", font=("Segoe UI", 16, "bold"))
+        brand = ttk.Frame(tabs_bar)
+        brand.pack(side="left", padx=(0, 30))
+        mark = tk.Canvas(brand, width=38, height=32, background="#14171c", highlightthickness=0)
+        mark.pack(side="left", padx=(0, 10))
+        for x, height in zip((5, 11, 17, 23, 29), (8, 18, 28, 18, 8)):
+            mark.create_line(x, 16-height/2, x, 16+height/2, fill="#52d4ba", width=3, capstyle="round")
+        ttk.Label(brand, text="RunsFormingMusic", style="Brand.TLabel").pack(side="left")
+        audio_bar = ttk.Frame(top_bar)
+        audio_bar.pack(fill="x", pady=(22, 0))
+        ttk.Style(root).configure("Compact.TButton", padding=(15, 10), font=("Segoe UI", 10))
         self.identity = tk.StringVar(value="Connecting your relay")
         self.notebook = ttk.Notebook(root)
         self.notebook.pack(fill="both", expand=True, padx=28)
@@ -891,10 +924,10 @@ class RelayWindow:
             button.pack(side="left", anchor="s", padx=(0, 6))
             self.tab_buttons.append(button)
         self.toolbar_buttons = []
-        button = ttk.Button(tabs_bar, text="Change folder", style="Compact.TButton", command=self.choose_folder)
+        button = ttk.Button(audio_bar, text="Open folder", style="Compact.TButton", command=self.choose_folder)
         button.pack(side="right", anchor="center", padx=(6, 0))
         self.toolbar_buttons.append(button)
-        self.install_button = ttk.Button(audio_bar, text="Install update", style="Compact.TButton", command=self.install_update_now, state="disabled")
+        self.install_button = ttk.Button(audio_bar, text="Install", style="Compact.TButton", command=self.install_update_now, state="disabled")
         self.install_button.pack(side="right", anchor="center", padx=(6, 0))
         self.update_button = ttk.Button(audio_bar, text="Check updates", style="Compact.TButton", command=lambda: self.check_updates(manual=True))
         self.update_button.pack(side="right", anchor="center", padx=(6, 0))
@@ -904,11 +937,11 @@ class RelayWindow:
         self.auto_update_checkbox.pack(side="right", anchor="center", padx=(6, 0))
         self.direct_mode = tk.BooleanVar(value=False)
         self.direct_checkbox = ttk.Checkbutton(audio_bar,
-            text="Play clips directly", variable=self.direct_mode,
+            text="Direct", variable=self.direct_mode,
             command=self.toggle_direct_mode)
         self.direct_checkbox.pack(side="right", anchor="center", padx=(6, 0))
-        ttk.Button(audio_bar, text="Direct audio", style="Compact.TButton", command=self.direct_audio_settings).pack(side="right", anchor="center", padx=(6, 0))
-        left, right = ttk.Frame(self.notebook, padding=20), ttk.Frame(self.notebook, padding=20)
+        ttk.Button(audio_bar, text="Audio ▾", style="Compact.TButton", command=self.direct_audio_settings).pack(side="right", anchor="center", padx=(6, 0))
+        left, right = ttk.Frame(self.notebook, padding=(0, 18)), ttk.Frame(self.notebook, padding=(0, 18))
         self.notebook.add(left, text="YouTube Music")
         self.notebook.add(right, text="Soundboard")
         self.notebook.bind("<<NotebookTabChanged>>", self.update_tabs)
@@ -969,36 +1002,40 @@ class RelayWindow:
         root.bind("<Control-v>", self.paste_youtube_link)
         root.bind("<Control-V>", self.paste_youtube_link)
         search_bar = ttk.Frame(right)
-        search_bar.pack(fill="x", pady=(0, 10))
+        search_bar.pack(fill="x", pady=(0, 20))
         # Stop stays beside search; library and audio settings share the top toolbar.
-        self.stop_clips_button = ttk.Button(search_bar, text="Stop all clips", style="Compact.TButton", command=self.stop)
+        self.stop_clips_button = ttk.Button(search_bar, text="■  Stop clips", style="Compact.TButton", command=self.stop)
         self.stop_clips_button.pack(side="left", padx=(0, 10))
         ttk.Label(search_bar, text="Search clips", style="Muted.TLabel").pack(side="left", padx=(0, 6))
         self.clip_search = tk.StringVar(value="")
-        self.clip_search_entry = ttk.Entry(search_bar, textvariable=self.clip_search, width=10)
+        self.clip_search_entry = ttk.Entry(search_bar, textvariable=self.clip_search, width=28)
         self.clip_search_entry.pack(side="left")
         self.clip_search.trace_add("write", lambda *args: self.render_clips())
         ttk.Label(search_bar, text="Bot volume", style="Muted.TLabel").pack(side="left", padx=(12, 4))
         self.bot_clip_volume = tk.DoubleVar(value=max(0, min(100, config.get("bot_clip_volume", 100))))
         self.bot_volume_text = tk.StringVar(value=f"{round(self.bot_clip_volume.get())}%")
         ttk.Scale(search_bar, from_=0, to=100, variable=self.bot_clip_volume,
-                  command=self.set_bot_clip_volume, length=100).pack(side="left")
+                  command=self.set_bot_clip_volume, length=150).pack(side="left", padx=(10, 6))
         ttk.Label(search_bar, textvariable=self.bot_volume_text, width=4, style="Muted.TLabel").pack(side="left")
-        ttk.Label(search_bar, text="Click name to play • Right-click to manage • Drag headers", style="Muted.TLabel").pack(side="left", padx=(12, 0))
-        self.folder_label = ttk.Label(search_bar, textvariable=self.folder, anchor="e", style="Muted.TLabel")
-        self.folder_label.pack(side="right", fill="x", expand=True, padx=(12, 0))
+        details = ttk.Frame(search_bar)
+        details.pack(side="right", fill="x", expand=True, padx=(20, 0))
+        ttk.Label(details, text="Click a clip to play • Right-click to manage", anchor="e", style="Muted.TLabel").pack(fill="x")
+        self.folder_label = ttk.Label(details, textvariable=self.folder, anchor="e", style="Muted.TLabel")
+        self.folder_label.pack(fill="x", pady=(5, 0))
         self.sync_running = False
         self.sort_keys = [("name", False)]
         self.sort_column = "name"
         self.sort_reverse = False
         self.clip_origins = {}
         self.listbox = ttk.Treeview(right, columns=("name", "volume", "shared", "label"), show="headings", selectmode="browse", style="Soundboard.Treeview")
-        self.listbox.heading("name", text="Name")
+        self.listbox.tag_configure("even", background="#1b2027")
+        self.listbox.tag_configure("odd", background="#191e25")
+        self.listbox.heading("name", text="Name", anchor="w")
         self.listbox.heading("shared", text="Shared")
         # Fixed widths leave unused space on the right after resizing columns.
-        self.listbox.column("name", width=400, minwidth=120, stretch=False)
+        self.listbox.column("name", width=440, minwidth=120, stretch=False)
         self.listbox.heading("volume", text="Volume")
-        self.listbox.column("volume", width=150, minwidth=150, stretch=False)
+        self.listbox.column("volume", width=250, minwidth=150, stretch=False)
         self.listbox.heading("label", text="Label")
         self.listbox.column("label", width=200, minwidth=100, stretch=False)
         self.clip_widgets = {}
@@ -1007,7 +1044,7 @@ class RelayWindow:
         self.listbox.configure(displaycolumns=self.column_order)
         self.listbox.bind("<Configure>", lambda event: self.position_clip_widgets())
         self.listbox.bind("<Map>", lambda event: self.root.after_idle(self.settle_clip_tab_layout))
-        self.listbox.column("shared", width=80, stretch=False, anchor="center")
+        self.listbox.column("shared", width=100, stretch=False, anchor="center")
         clip_scroll = ttk.Scrollbar(right, orient="vertical", command=self.scroll_clips)
         self.listbox.configure(yscrollcommand=lambda *args: (clip_scroll.set(*args), self.schedule_clip_position()))
         clip_scroll.pack(side="right", fill="y")
@@ -1034,21 +1071,21 @@ class RelayWindow:
         self.context_clip_id = None
         self.listbox.bind("<Button-3>", self.clip_context_menu)
         self.status_label = ttk.Label(root, textvariable=self.status, wraplength=1000, style="Muted.TLabel")
-        ttk.Label(right, text="Drop audio files anywhere in this window to copy them to your local folder.", style="Muted.TLabel", wraplength=900).pack(anchor="w", pady=6)
+
         self.register_drop_targets(root)
         update_bar = ttk.Frame(root)
         # Reserve the footer before the expanding notebook consumes the window.
         update_bar.pack(side="bottom", fill="x", padx=28, pady=(4, 12), before=self.notebook)
-        self.status_label.pack(side="bottom", fill="x", padx=28, pady=(6, 4), before=self.notebook)
-        self.sync_button = ttk.Button(tabs_bar, text="Sync clips", style="Compact.TButton", command=self.sync_shared)
+        self.status_label.pack(in_=update_bar, side="left", fill="x", expand=True, padx=(0, 12))
+        self.sync_button = ttk.Button(audio_bar, text="⇄  Sync", style="Compact.TButton", command=self.sync_shared)
         self.sync_button.pack(side="right", anchor="center", padx=(6, 0))
-        self.refresh_button = ttk.Button(tabs_bar, text="Refresh files", style="Compact.TButton", command=self.refresh_files)
+        self.refresh_button = ttk.Button(audio_bar, text="↻  Refresh", style="Compact.TButton", command=self.refresh_files)
         self.refresh_button.pack(side="right", anchor="center", padx=(6, 0))
         self.clip_action_buttons = [self.refresh_button, self.stop_clips_button, self.sync_button]
         ttk.Label(update_bar, text=f"RunsFormingMusic v1.{RELAY_BUILD}", style="Muted.TLabel").pack(side="right")
         ttk.Label(update_bar, textvariable=self.identity, style="Muted.TLabel").pack(side="right", padx=18)
         root.update_idletasks()
-        root.minsize(max(1160, tabs_bar.winfo_reqwidth() + 56), 620)
+        root.minsize(max(1160, audio_bar.winfo_reqwidth() + 56), 620)
         self.update_check_running = False
         self.pending_update = None
         status_file = FILES_DIR / "update-status.txt"
@@ -1337,8 +1374,8 @@ class RelayWindow:
             cell = self.clip_widgets.pop(key)
             cell["menu"].destroy()
         self.listbox.delete(*self.listbox.get_children())
-        for key in ids:
-            self.listbox.insert("", "end", iid=key, values=(self.agent.local_files[key].stem, "", "☑" if self.clip_origins[key] == "Shared" else "☐", ""))
+        for row_index, key in enumerate(ids):
+            self.listbox.insert("", "end", iid=key, tags=("even" if row_index % 2 == 0 else "odd",), values=("▶    " + self.agent.local_files[key].stem, "", "☑" if self.clip_origins[key] == "Shared" else "☐", ""))
         self.preload_clip_widgets()
         self.root.after_idle(self.position_clip_widgets)
 
@@ -1427,7 +1464,7 @@ class RelayWindow:
             return
         self.clip_canvases = {}
         self.clip_slider_drag = None
-        for column in ("volume", "label"):
+        for column in ("volume", "label", "shared"):
             canvas = tk.Canvas(self.listbox, background="#1b2027", borderwidth=0,
                                highlightthickness=0, yscrollincrement=1)
             self.clip_canvases[column] = canvas
@@ -1461,16 +1498,27 @@ class RelayWindow:
                 self.clip_widgets[key] = {"menu": menu}
             cell = self.clip_widgets[key]
             y = self.clip_row_indices[key] * self.clip_row_height
+            for canvas in self.clip_canvases.values():
+                canvas.create_rectangle(0, y, int(canvas.cget("width")) if int(canvas.cget("width")) > 1 else 1000,
+                                        y + self.clip_row_height, fill="#1b2027" if self.clip_row_indices[key] % 2 == 0 else "#191e25", outline="")
+                canvas.create_line(0, y+self.clip_row_height-1, 2000, y+self.clip_row_height-1, fill="#252d36")
+            shared = self.clip_canvases["shared"]
+            cx = self.clip_canvas_widths["shared"] / 2
+            cy = y + self.clip_row_height / 2
+            is_shared = self.clip_origins.get(key) == "Shared"
+            shared.create_rectangle(cx-8, cy-8, cx+8, cy+8, fill="#52d4ba" if is_shared else "#252d36", outline="#52d4ba" if is_shared else "#526170")
+            if is_shared:
+                shared.create_line(cx-4, cy, cx-1, cy+3, cx+5, cy-4, fill="#10211e", width=2)
             volume = self.clip_canvases["volume"]
-            cell["volume"] = (volume.create_line(0, 0, 0, 0, fill="#39434f", width=2),
+            cell["volume"] = (volume.create_line(0, 0, 0, 0, fill="#39434f", width=4, capstyle="round"),
                               volume.create_oval(0, 0, 0, 0, fill="#52d4ba", outline=""),
-                              volume.create_text(0, 0, anchor="e", fill="#c3cdd8", font=("Segoe UI", 9)))
+                              volume.create_text(0, 0, anchor="e", fill="#c3cdd8", font=("Segoe UI", 9)),
+                              volume.create_line(0, 0, 0, 0, fill="#52d4ba", width=4, capstyle="round"))
             self.draw_clip_volume(key)
             label = self.clip_canvases["label"]
             current = self.clip_setting(key).get("label", "")
             color = self.config.get("clip_labels", {}).get(current, "#1b2027")
-            cell["label"] = (label.create_rectangle(5, y + 2, min(self.clip_canvas_widths["label"] - 5, 20 + len(current or "Select…") * 7), y + self.clip_row_height - 2,
-                                                    fill=color, outline=""),
+            cell["label"] = (rounded_badge(label, 5, y + (self.clip_row_height-24)/2, min(self.clip_canvas_widths["label"] - 5, 20 + len(current or "Select…") * 7), y + (self.clip_row_height+24)/2, color),
                              label.create_text(10, y + self.clip_row_height / 2, text=current or "Select…",
                                                anchor="w", fill="#14231f" if current and color != "#1b2027" else "#c3cdd8", font=("Segoe UI", 9)))
             menu = cell["menu"]
@@ -1480,14 +1528,16 @@ class RelayWindow:
 
     def draw_clip_volume(self, key):
         canvas = self.clip_canvases["volume"]
-        line, knob, text = self.clip_widgets[key]["volume"]
+        line, knob, text, progress = self.clip_widgets[key]["volume"]
         width = self.clip_canvas_widths["volume"]
         y = self.clip_row_indices[key] * self.clip_row_height + self.clip_row_height / 2
         left, right = 10, max(11, width - 52)
         value = max(-100, min(100, self.clip_setting(key).get("volume", 0)))
         x = left + (right - left) * (value + 100) / 200
         canvas.coords(line, left, y, right, y)
-        canvas.coords(knob, x - 4, y - 4, x + 4, y + 4)
+        canvas.coords(progress, left, y, x, y)
+        canvas.tag_lower(progress, knob)
+        canvas.coords(knob, x - 6, y - 6, x + 6, y + 6)
         canvas.coords(text, width - 4, y)
         canvas.itemconfigure(text, text=f"{value:+d}%" if value else "0%")
 
