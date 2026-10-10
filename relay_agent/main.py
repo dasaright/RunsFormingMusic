@@ -969,6 +969,7 @@ class RelayWindow:
         self.column_order = clip_column_order(config.get("clip_column_order"))
         self.listbox.configure(displaycolumns=self.column_order)
         self.listbox.bind("<Configure>", lambda event: self.position_clip_widgets())
+        self.listbox.bind("<Map>", lambda event: self.root.after_idle(self.settle_clip_tab_layout))
         self.listbox.column("shared", width=80, stretch=False, anchor="center")
         clip_scroll = ttk.Scrollbar(right, orient="vertical", command=self.scroll_clips)
         self.listbox.configure(yscrollcommand=lambda *args: (clip_scroll.set(*args), self.schedule_clip_position()))

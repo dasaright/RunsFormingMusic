@@ -167,6 +167,7 @@ class HeaderDragTests(unittest.TestCase):
             window.clip_origins = {'clip':'Shared'}
             window.render_clips(); root.update()
             window.notebook.select(1); root.update()
+            window.position_clip_widgets(); root.update()
             self.assertEqual(window.clip_canvases['label'].winfo_y(), window.listbox.bbox('clip', 'label')[1])
             self.assertEqual(window.clip_canvases['volume'].winfo_y(), window.listbox.bbox('clip', 'volume')[1])
             window.clip_search.set('not found'); root.update()
