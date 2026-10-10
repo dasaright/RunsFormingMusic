@@ -231,3 +231,9 @@ TTS includes every Piper model/quality option for English, Dutch, German, French
 Select **Translate from** and a target language, then press **Translate**. The result appears below without replacing your input. **Play translated** automatically selects a voice in the output language when needed. Translation uses local CTranslate2 inference with Argos language models; models download on first use and are cached in `Files/Translation`. Non-English pairs translate through English. No translation API fees, and text is processed on your PC. Model downloads can take time and use disk space; translation quality varies.
 
 Argos models/source: https://github.com/argosopentech/argos-translate and https://github.com/argosopentech/argospm-index . CTranslate2: https://github.com/OpenNMT/CTranslate2 .
+
+## Managing TTS voices
+
+**Manage voices** lists every available model, whether it is downloaded, whether it is enabled in your TTS selector, and its speaker count. Search/filter the list, select one or more models, and choose **Download & enable**, **Enable**, **Disable**, or **Remove download**. **Use selected** chooses the selected model. Disabling keeps its download on disk; removing a download also disables it. Enabling a model without downloading lets it download on first playback. Your enabled list is saved across restarts.
+
+In the TTS input, **Ctrl+Backspace** deletes the previous word (or selection), and **Shift+Backspace** clears the input.

@@ -2,6 +2,7 @@
 import hashlib
 import json
 import ssl
+import shutil
 import threading
 import urllib.request
 import wave
@@ -31,10 +32,33 @@ class PiperSpeech:
         self.loaded_voice = VOICE
         self.lock = threading.Lock()
 
+    def voice_folder(self, voice_id):
+        if voice_id not in VOICE_CATALOG:
+            raise ValueError("Choose a supported Piper voice.")
+        return self.directory / 'voice' if voice_id == VOICE else self.directory / 'voices' / voice_id
+
+    def downloaded(self, voice_id):
+        folder = self.voice_folder(voice_id)
+        return all((folder / name).is_file() and (folder / name).stat().st_size > 0
+                   for name in (voice_id+'.onnx', voice_id+'.onnx.json', 'MODEL_CARD'))
+
+    def download(self, voice_id):
+        with self.lock:
+            return self.ensure_voice(voice_id)
+
+    def remove(self, voice_id):
+        with self.lock:
+            if self.loaded_voice == voice_id:
+                self.voice = None  # Release ONNX file handles before deleting on Windows.
+                self.loaded_voice = None
+            folder = self.voice_folder(voice_id)
+            if folder.exists():
+                shutil.rmtree(folder)
+
     def ensure_voice(self, voice_id=VOICE):
         locale, name, quality = voice_id.split('-')
         base_url = BASE_URL + f'{locale.split("_")[0]}/{locale}/{name}/{quality}/'
-        folder = self.directory / 'voice' if voice_id == VOICE else self.directory / 'voices' / voice_id
+        folder = self.voice_folder(voice_id)
         folder.mkdir(parents=True, exist_ok=True)
         for name in (voice_id + '.onnx', voice_id + '.onnx.json', 'MODEL_CARD'):
             target = folder / name

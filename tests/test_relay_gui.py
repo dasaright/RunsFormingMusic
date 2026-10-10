@@ -173,6 +173,10 @@ class HeaderDragTests(unittest.TestCase):
             self.assertEqual(window.auto_update_checkbox.pack_info()['anchor'], 'center')
 
             self.assertEqual(len(window.notebook.tabs()), 3)
+            window.manage_voices()
+            root.update()
+            self.assertGreater(len(window.voice_models.get_children()), 60)
+            window.voice_manager.destroy()
             self.assertFalse(window.direct_mode.get())
             self.assertEqual(window.direct_checkbox.cget('text'), 'Direct')
             self.assertEqual(window.direct_checkbox.master, window.auto_update_checkbox.master)

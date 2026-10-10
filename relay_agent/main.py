@@ -1171,9 +1171,13 @@ class RelayWindow:
         voice_row.pack(fill="x", pady=(0, 14))
         ttk.Label(voice_row, text="Voice").pack(side="left", padx=(0, 10))
         chosen_voice = config.get("tts_voice", VOICE)
-        self.tts_voice = tk.StringVar(value=next((label for label, voice in VOICE_OPTIONS.items() if voice == chosen_voice), next(iter(VOICE_OPTIONS))))
+        if "tts_enabled_voices" not in config:
+            config["tts_enabled_voices"] = list(dict.fromkeys([chosen_voice] + [voice for voice in VOICE_CATALOG if self.agent.speech.downloaded(voice)]))
+        enabled_options = {label: voice for label, voice in VOICE_OPTIONS.items() if voice in config["tts_enabled_voices"]}
+
+        self.tts_voice = tk.StringVar(value=next((label for label, voice in enabled_options.items() if voice == chosen_voice), next(iter(enabled_options), "")))
         self.tts_voice_picker = ttk.Combobox(voice_row, textvariable=self.tts_voice,
-                                           values=list(VOICE_OPTIONS), state="readonly", width=45)
+                                           values=list(enabled_options), state="readonly", width=45)
         self.tts_voice_picker.pack(side="left")
         self.tts_voice_picker.bind("<<ComboboxSelected>>", self.save_tts_voice)
         ttk.Label(voice_row, text="Speaker").pack(side="left", padx=(16, 8))
@@ -1182,10 +1186,13 @@ class RelayWindow:
         self.tts_speaker_picker.pack(side="left")
         self.tts_speaker_picker.bind("<<ComboboxSelected>>", self.save_tts_voice)
         self.update_tts_speakers()
+        ttk.Button(voice_row, text="Manage voices", command=self.manage_voices).pack(side="left", padx=12)
         self.tts_text = tk.Text(tts_panel, height=8, wrap="word", font=("Segoe UI", 12),
                                 background="#1b2027", foreground="#e6edf3", insertbackground="#52d4ba",
                                 relief="flat", highlightthickness=0, padx=16, pady=12)
         self.tts_text.pack(fill="x")
+        self.tts_text.bind("<Control-BackSpace>", self.delete_tts_word)
+        self.tts_text.bind("<Shift-BackSpace>", self.clear_tts_text)
         self.tts_text.bind("<Return>", self.play_text)
         self.tts_text.bind("<Shift-Return>", lambda event: None)
         tts_controls = ttk.Frame(tts_panel)
@@ -1379,7 +1386,127 @@ class RelayWindow:
         if config.get("direct_soundboard"):
             root.after(300, self.restore_direct_mode)
 
+    def delete_tts_word(self, event=None):
+        selection = self.tts_text.tag_ranges("sel")
+        if selection:
+            self.tts_text.delete(selection[0], selection[1])
+        else:
+            before = self.tts_text.get("1.0", "insert")
+            match = re.search(r"\S+\s*$", before)
+            if match:
+                self.tts_text.delete(f"insert-{len(before)-match.start()}c", "insert")
+            elif before:
+                self.tts_text.delete("1.0", "insert")
+        return "break"
+
+    def clear_tts_text(self, event=None):
+        self.tts_text.delete("1.0", "end")
+        return "break"
+
+    def refresh_enabled_voices(self):
+        enabled = self.config.get("tts_enabled_voices", [VOICE])
+        options = [label for label, voice in VOICE_OPTIONS.items() if voice in enabled]
+        self.tts_voice_picker.configure(values=options)
+        if self.tts_voice.get() not in options:
+            self.tts_voice.set(options[0] if options else "")
+            self.config["tts_voice"] = VOICE_OPTIONS.get(self.tts_voice.get(), "")
+            self.config["tts_speaker"] = 0
+        if options:
+            self.update_tts_speakers()
+        else:
+            self.tts_speaker.set("")
+            self.tts_speaker_picker.configure(values=[])
+        self.save()
+
+    def manage_voices(self):
+        if getattr(self, "voice_manager", None) is not None and self.voice_manager.winfo_exists():
+            self.voice_manager.lift()
+            return
+        dialog = tk.Toplevel(self.root)
+        self.voice_manager = dialog
+        dialog.title("TacoBot · Voice models")
+        dialog.geometry("820x540")
+        dialog.configure(background="#14171c")
+        ttk.Label(dialog, text="Download models to keep locally. Enable the voices you want in your TTS selector.").pack(anchor="w", padx=18, pady=16)
+        self.voice_filter = tk.StringVar()
+        ttk.Entry(dialog, textvariable=self.voice_filter).pack(fill="x", padx=18, pady=(0,10))
+        area = ttk.Frame(dialog)
+        area.pack(fill="both", expand=True, padx=18)
+        self.voice_models = ttk.Treeview(area, columns=("model","downloaded","enabled","speakers"),show="headings",selectmode="extended",style="Soundboard.Treeview")
+        for column, title, width in (("model","Voice model",470),("downloaded","Downloaded",90),("enabled","Enabled",75),("speakers","Speakers",65)):
+            self.voice_models.heading(column,text=title)
+            self.voice_models.column(column,width=width)
+        scroll = ttk.Scrollbar(area, orient="vertical",command=self.voice_models.yview)
+        scroll.pack(side="right", fill="y")
+        self.voice_models.configure(yscrollcommand=scroll.set)
+        self.voice_models.pack(fill="both", expand=True)
+        actions = ttk.Frame(dialog)
+        actions.pack(fill="x", padx=18,pady=14)
+        self.voice_manager_buttons = []
+        for text, action in (("Download & enable","download"),("Enable","enable"),("Disable","disable"),("Remove download","remove"),("Use selected","use")):
+            button = ttk.Button(actions,text=text,command=lambda mode=action:self.change_voice_models(mode))
+            button.pack(side="left",padx=(0,8))
+            self.voice_manager_buttons.append(button)
+        self.voice_model_status = tk.StringVar(value="Select one or more models. Downloads may take a minute.")
+        ttk.Label(dialog,textvariable=self.voice_model_status).pack(anchor="w",padx=18,pady=(0,14))
+        self.voice_filter.trace_add("write",lambda *_:self.refresh_voice_models())
+        self.refresh_voice_models()
+
+    def refresh_voice_models(self):
+        if not getattr(self,"voice_manager",None) or not self.voice_manager.winfo_exists():
+            return
+        selection = self.voice_models.selection()
+        self.voice_models.delete(*self.voice_models.get_children())
+        query = self.voice_filter.get().casefold()
+        enabled = self.config.get("tts_enabled_voices",[VOICE])
+        for label, voice in VOICE_OPTIONS.items():
+            if query not in label.casefold():
+                continue
+            self.voice_models.insert("","end",iid=voice,values=(label,"Yes" if self.agent.speech.downloaded(voice) else "No","✓" if voice in enabled else "",VOICE_CATALOG[voice]['speakers']))
+        self.voice_models.selection_set([voice for voice in selection if self.voice_models.exists(voice)])
+
+    def change_voice_models(self, action):
+        selected = list(self.voice_models.selection())
+        if not selected:
+            self.voice_model_status.set("Select a model first.")
+            return
+        if action in ("enable","disable","use"):
+            enabled = set(self.config.get("tts_enabled_voices",[VOICE]))
+            if action == "disable":
+                enabled.difference_update(selected)
+            else:
+                enabled.update(selected)
+            self.config["tts_enabled_voices"] = sorted(enabled)
+            if action == "use":
+                voice = selected[0]
+                self.tts_voice.set(next(label for label,value in VOICE_OPTIONS.items() if value==voice))
+                self.save_tts_voice()
+            self.refresh_enabled_voices()
+            self.refresh_voice_models()
+            self.voice_model_status.set("Voice choices saved. Enabled models download automatically if used before downloading.")
+            return
+        for button in self.voice_manager_buttons:
+            button.configure(state="disabled")
+        self.voice_model_status.set("Downloading selected models…" if action=="download" else "Removing selected downloads…")
+        def worker():
+            finished = []
+            try:
+                for voice in selected:
+                    if action=="download":
+                        self.agent.speech.download(voice)
+                    else:
+                        self.agent.speech.remove(voice)
+                    finished.append(voice)
+                self.agent.events.put({"voice_models_done":True,"voice_models_action":action,"voice_models_finished":finished})
+            except Exception as exc:
+                self.agent.events.put({"voice_models_done":True,"voice_models_action":action,"voice_models_finished":finished,"error":"Voice model update failed: "+clean_error(exc)})
+        threading.Thread(target=worker,daemon=True).start()
+
     def update_tts_speakers(self):
+        if self.tts_voice.get() not in VOICE_OPTIONS:
+            self.tts_speaker.set("")
+            self.tts_speaker_picker.configure(values=[])
+            return
         voice = VOICE_OPTIONS[self.tts_voice.get()]
         info = VOICE_CATALOG[voice]
         names = {number: name for name, number in info['speaker_names'].items()}
@@ -1423,11 +1550,16 @@ class RelayWindow:
         if not text or self.tts_play_button.instate(["disabled"]):
             return
         language = self.translated_language
-        current = VOICE_OPTIONS[self.tts_voice.get()]
-        if VOICE_CATALOG[current]['language'] != language:
+        current = VOICE_OPTIONS.get(self.tts_voice.get(),VOICE)
+        if self.tts_voice.get() not in VOICE_OPTIONS or VOICE_CATALOG[current]['language'] != language:
             choice = next(label for label, voice in VOICE_OPTIONS.items() if VOICE_CATALOG[voice]['language'] == language and VOICE_CATALOG[voice]['quality']=='medium')
+            voice = VOICE_OPTIONS[choice]
+            enabled = self.config.setdefault("tts_enabled_voices",[VOICE])
+            if voice not in enabled:
+                enabled.append(voice)
             self.tts_voice.set(choice)
             self.save_tts_voice()
+            self.refresh_enabled_voices()
         if len(text)>MAX_TEXT:
             self.status.set("Translation is longer than the speech limit. Shorten the input text.")
             return
@@ -1435,6 +1567,9 @@ class RelayWindow:
         asyncio.run_coroutine_threadsafe(self.agent.play_text(text, VOICE_OPTIONS[self.tts_voice.get()], self.tts_speaker_options[self.tts_speaker.get()]), self.loop)
 
     def play_text(self, event=None):
+        if self.tts_voice.get() not in VOICE_OPTIONS:
+            self.status.set("Enable a voice in Manage voices first.")
+            return "break"
         if self.tts_play_button.instate(["disabled"]):
             return "break"
         text = self.tts_text.get("1.0", "end-1c").strip()
@@ -2415,6 +2550,20 @@ class RelayWindow:
                     self.update_idle_since = None
             if event.get("import_done") and event.get("folder") == self.folder.get():
                 self.refresh_files()
+            if event.get("voice_models_done"):
+                enabled = set(self.config.get("tts_enabled_voices",[VOICE]))
+                completed = event["voice_models_finished"]
+                if event["voice_models_action"] == "download":
+                    enabled.update(completed)
+                else:
+                    enabled.difference_update(completed)
+                self.config["tts_enabled_voices"] = sorted(enabled)
+                self.refresh_enabled_voices()
+                if getattr(self,"voice_manager",None) and self.voice_manager.winfo_exists():
+                    for button in self.voice_manager_buttons:
+                        button.configure(state="normal")
+                    self.voice_model_status.set("Voice model update finished." if "error" not in event else event["error"])
+                    self.refresh_voice_models()
             if event.get("translation_done"):
                 self.translate_button.configure(state="normal")
                 if "translated_text" in event:
