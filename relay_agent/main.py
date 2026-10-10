@@ -96,19 +96,74 @@ def rounded_badge(canvas, x1, y1, x2, y2, color):
                                  smooth=True, splinesteps=12, fill=color, outline="")
 
 
+class SleekScale(tk.Canvas):
+    def __init__(self, master, variable, command, width=100):
+        super().__init__(master, width=width, height=28, background="#14171c", highlightthickness=0, bd=0)
+        self.variable, self.command = variable, command
+        self.bind("<Button-1>", self.change)
+        self.bind("<B1-Motion>", self.change)
+        self.bind("<Configure>", self.draw)
+        self.trace_id = variable.trace_add("write", self.draw)
+        self.bind("<Destroy>", lambda e: variable.trace_remove("write", self.trace_id) if e.widget is self else None)
+        self.draw()
+
+    def change(self, event):
+        value = max(0, min(100, (event.x-7) / max(1, self.winfo_width()-14) * 100))
+        self.variable.set(value)
+        self.command(str(value))
+
+    def draw(self, *args):
+        self.delete("all")
+        width = max(self.winfo_width(), int(self.cget("width")))
+        x = 7 + (width-14) * self.variable.get()/100
+        self.create_line(7, 14, width-7, 14, fill="#303a45", width=4, capstyle="round")
+        self.create_line(7, 14, x, 14, fill="#52d4ba", width=4, capstyle="round")
+        self.create_oval(x-6, 8, x+6, 20, fill="#d9fff5", outline="")
+
+
+def add_button_icons(root):
+    # Rasterize simple line icons at 24px instead of enlarging button labels.
+    paths = {
+        "refresh": [(18,6,9,4),(9,4,4,10),(4,10,5,17),(5,17,12,20),(12,20,19,16),(18,6,18,12),(18,12,12,12)],
+        "sync": [(3,7,20,7),(20,7,16,3),(3,17,20,17),(3,17,7,21)],
+        "stop": [(6,6,18,6),(18,6,18,18),(18,18,6,18),(6,18,6,6)],
+        "folder": [(3,7,10,7),(10,7,12,10),(12,10,21,10),(21,10,19,19),(19,19,3,19),(3,19,3,7)],
+        "download": [(12,3,12,16),(12,16,7,11),(12,16,17,11),(4,18,4,21),(4,21,20,21),(20,21,20,18)],
+        "audio": [(3,10,7,10),(7,10,12,5),(12,5,12,19),(12,19,7,14),(7,14,3,14),(3,14,3,10),(17,7,20,12),(20,12,17,17)],
+        "play": [(7,4,20,12),(20,12,7,20),(7,20,7,4)],
+    }
+    def visit(widget):
+        for child in widget.winfo_children():
+            if isinstance(child, ttk.Button):
+                text = child.cget("text")
+                lower = text.lower()
+                name = next((key for key, terms in (("refresh",("refresh","check")),("sync",("sync",)),("stop",("stop",)),("folder",("folder",)),("download",("install",)),("audio",("audio",)),("play",("play","next","previous","youtube","soundboard"))) if any(term in lower for term in terms)), "play")
+                image = tk.PhotoImage(master=root, width=24, height=24)
+                for x1,y1,x2,y2 in paths[name]:
+                    steps=max(abs(x2-x1),abs(y2-y1),1)*2
+                    for i in range(steps+1):
+                        x,y=round(x1+(x2-x1)*i/steps),round(y1+(y2-y1)*i/steps)
+                        image.put("#52d4ba", (x,y,min(x+2,24),min(y+2,24)))
+                child.graphite_icon = image
+                child.configure(image=image, compound="left", text=text.lstrip("↻⇄■ "))
+            visit(child)
+    visit(root)
+
+
 def style_relay(root):
     root.configure(background="#14171c")
     style = ttk.Style(root)
     style.theme_use("clam")
     style.configure(".", font=("Segoe UI", 10), background="#14171c", foreground="#e6edf3")
     style.configure("TFrame", background="#14171c")
-    style.configure("Card.TFrame", background="#1b2027")
+    style.configure("Card.TFrame", background="#14171c")
+    style.layout("Treeview", [("Treeview.treearea", {"sticky": "nswe"})])
     style.configure("TLabel", background="#14171c")
-    style.configure("Card.TLabel", background="#1b2027")
+    style.configure("Card.TLabel", background="#14171c")
     style.configure("Title.TLabel", font=("Segoe UI", 23, "bold"))
     style.configure("Muted.TLabel", foreground="#a3adb9", font=("Segoe UI", 9))
-    style.configure("CardMuted.TLabel", background="#1b2027", foreground="#a3adb9", font=("Segoe UI", 9))
-    style.configure("Song.TLabel", background="#1b2027", font=("Segoe UI", 17, "bold"))
+    style.configure("CardMuted.TLabel", background="#14171c", foreground="#a3adb9", font=("Segoe UI", 9))
+    style.configure("Song.TLabel", background="#14171c", font=("Segoe UI", 17, "bold"))
     style.configure("TButton", background="#1b2027", borderwidth=0, padding=(16, 10), relief="flat")
     style.map("TButton", background=[("active", "#2b3540")], foreground=[("disabled", "#66727f")])
     style.configure("Primary.TButton", background="#52d4ba", foreground="#10211e")
@@ -120,12 +175,12 @@ def style_relay(root):
     style.configure("TNotebook.Tab", padding=(26, 12), font=("Segoe UI", 11, "bold"), background="#252d36", borderwidth=0)
     style.map("TNotebook.Tab", background=[("selected", "#1b2027")], foreground=[("selected", "#e6edf3"), ("!selected", "#a3adb9")])
     style.configure("Treeview", background="#1b2027", fieldbackground="#1b2027", foreground="#e6edf3", rowheight=36, borderwidth=0)
-    style.configure("Soundboard.Treeview", rowheight=44, font=("Segoe UI", 10))
+    style.configure("Soundboard.Treeview", rowheight=33, font=("Segoe UI", 10))
     style.configure("Treeview.Heading", background="#202730", foreground="#c3cdd8", font=("Segoe UI", 10, "bold"), padding=(10, 7), relief="flat")
     style.map("Treeview.Heading", background=[("active", "#2b3540")], foreground=[("active", "#e6edf3")])
     style.map("Treeview", background=[("selected", "#25443f")], foreground=[("selected", "#e6edf3")])
     style.configure("Clip.TFrame", background="#1b2027")
-    style.configure("Clip.TLabel", background="#1b2027", foreground="#a3adb9", font=("Segoe UI", 9))
+    style.configure("Clip.TLabel", background="#14171c", foreground="#a3adb9", font=("Segoe UI", 9))
     style.configure("TCheckbutton", background="#14171c", padding=6)
     style.configure("Horizontal.TScale", background="#52d4ba", troughcolor="#252d36", borderwidth=0)
     style.configure("TEntry", fieldbackground="#1b2027", foreground="#e6edf3", insertcolor="#52d4ba",
@@ -136,7 +191,12 @@ def style_relay(root):
     style.map("TCheckbutton", background=[("active", "#14171c")], foreground=[("active", "#e6edf3")])
     style.configure("TScrollbar", background="#39434f", troughcolor="#14171c", arrowcolor="#a3adb9",
                     borderwidth=0, arrowsize=12)
-    style.map("TScrollbar", background=[("active", "#526170")])
+    style.map("TScrollbar", background=[("active", "#52d4ba")])
+    for orientation, sticky in (("Vertical", "ns"), ("Horizontal", "we")):
+        style.layout(orientation + ".TScrollbar", [(orientation + ".Scrollbar.trough", {
+            "sticky": "nswe", "children": [(orientation + ".Scrollbar.thumb", {"sticky": sticky})]})])
+        style.configure(orientation + ".TScrollbar", width=8, borderwidth=0,
+                        relief="flat", lightcolor="#39434f", darkcolor="#39434f")
     root.option_add("*TCombobox*Listbox.background", "#1b2027")
     root.option_add("*TCombobox*Listbox.foreground", "#e6edf3")
     root.option_add("*TCombobox*Listbox.selectBackground", "#25443f")
@@ -379,6 +439,14 @@ def youtube_common_args(config):
     return args
 
 
+def youtube_stream_args(config, url):
+    # Keep downloads below a burst that can fill residential router buffers.
+    return youtube_common_args(config) + [
+        "--format", "bestaudio/best[height<=360]", "--limit-rate", "256K",
+        "--concurrent-fragments", "1", "--output", "-", url,
+    ]
+
+
 async def drain_stderr(stream):
     chunks = []
     while True:
@@ -573,13 +641,7 @@ class RelayAgent:
             local_path = self.local_files.get(url[6:]) if url.startswith("local:") else None
             if url.startswith("local:") and local_path is None:
                 raise ValueError("This audio file is no longer in the selected folder. Refresh the library.")
-            ytdlp_args = youtube_common_args(self.config) + [
-                "--format",
-                "bestaudio/best",
-                "--output",
-                "-",
-                url,
-            ]
+            ytdlp_args = youtube_stream_args(self.config, url)
             if local_path is None:
                 ytdlp = await asyncio.create_subprocess_exec(
                     *ytdlp_args,
@@ -596,6 +658,7 @@ class RelayAgent:
                 "-hide_banner",
                 "-loglevel",
                 "error",
+                "-threads", "1",
                 "-i",
                 str(local_path) if local_path is not None else "pipe:0",
                 "-vn",
@@ -653,7 +716,7 @@ class RelayAgent:
                 now = asyncio.get_running_loop().time()
                 # Absolute deadlines avoid accumulating Windows sleep/send overhead.
                 # Bound catch-up after a stalled download so buffers cannot flood.
-                next_frame_at = max(next_frame_at, now - 0.1)
+                next_frame_at = max(next_frame_at, now - 0.02)
                 await asyncio.sleep(max(0, next_frame_at - now))
                 if local_path is not None:
                     frame = clip_gain(frame, self.config.get("clip_settings", {}).get(url.removeprefix("local:"), {}).get("volume", 0), self.config.get("bot_clip_volume", 100))
@@ -960,7 +1023,7 @@ class RelayWindow:
         ttk.Label(brand, text="RunsFormingMusic", style="Brand.TLabel").pack(side="left")
         audio_bar = ttk.Frame(top_bar)
         audio_bar.pack(fill="x", pady=(22, 0))
-        ttk.Style(root).configure("Compact.TButton", padding=(15, 10), font=("Segoe UI", 10))
+        ttk.Style(root).configure("Compact.TButton", padding=(6, 7), font=("Segoe UI", 9))
         self.identity = tk.StringVar(value="Connecting your relay")
         self.notebook = ttk.Notebook(root)
         self.notebook.pack(fill="both", expand=True, padx=28)
@@ -1048,24 +1111,23 @@ class RelayWindow:
         self.queue_view.pack(fill="both", expand=True, padx=(0, 12))
         root.bind("<Control-v>", self.paste_youtube_link)
         root.bind("<Control-V>", self.paste_youtube_link)
-        search_bar = ttk.Frame(right)
-        search_bar.pack(fill="x", pady=(0, 20))
+        search_bar = ttk.Frame(audio_bar)
+        search_bar.pack(side="left", anchor="center")
         # Stop stays beside search; library and audio settings share the top toolbar.
         self.stop_clips_button = ttk.Button(search_bar, text="■  Stop clips", style="Compact.TButton", command=self.stop)
         self.stop_clips_button.pack(side="left", padx=(0, 10))
         ttk.Label(search_bar, text="Search clips", style="Muted.TLabel").pack(side="left", padx=(0, 6))
         self.clip_search = tk.StringVar(value="")
-        self.clip_search_entry = ttk.Entry(search_bar, textvariable=self.clip_search, width=28)
+        self.clip_search_entry = ttk.Entry(search_bar, textvariable=self.clip_search, width=12)
         self.clip_search_entry.pack(side="left")
         self.clip_search.trace_add("write", lambda *args: self.render_clips())
         ttk.Label(search_bar, text="Bot volume", style="Muted.TLabel").pack(side="left", padx=(12, 4))
         self.bot_clip_volume = tk.DoubleVar(value=max(0, min(100, config.get("bot_clip_volume", 100))))
         self.bot_volume_text = tk.StringVar(value=f"{round(self.bot_clip_volume.get())}%")
-        ttk.Scale(search_bar, from_=0, to=100, variable=self.bot_clip_volume,
-                  command=self.set_bot_clip_volume, length=150).pack(side="left", padx=(10, 6))
+        SleekScale(search_bar, variable=self.bot_clip_volume, command=self.set_bot_clip_volume, width=100).pack(side="left", padx=(6, 4))
         ttk.Label(search_bar, textvariable=self.bot_volume_text, width=4, style="Muted.TLabel").pack(side="left")
-        details = ttk.Frame(search_bar)
-        details.pack(side="right", fill="x", expand=True, padx=(20, 0))
+        details = ttk.Frame(right)
+        details.pack(fill="x", pady=(0, 8))
         ttk.Label(details, text="Click a clip to play • Right-click to manage", anchor="e", style="Muted.TLabel").pack(fill="x")
         self.folder_label = ttk.Label(details, textvariable=self.folder, anchor="e", style="Muted.TLabel")
         self.folder_label.pack(fill="x", pady=(5, 0))
@@ -1125,13 +1187,14 @@ class RelayWindow:
         update_bar.pack(side="bottom", fill="x", padx=28, pady=(4, 12), before=self.notebook)
         self.status_label.pack(in_=update_bar, side="left", fill="x", expand=True, padx=(0, 12))
         self.sync_button = ttk.Button(audio_bar, text="⇄  Sync", style="Compact.TButton", command=self.sync_shared)
-        self.sync_button.pack(side="right", anchor="center", padx=(6, 0))
+        self.sync_button.pack(side="left", anchor="center", padx=(0, 6), before=search_bar)
         self.refresh_button = ttk.Button(audio_bar, text="↻  Refresh", style="Compact.TButton", command=self.refresh_files)
-        self.refresh_button.pack(side="right", anchor="center", padx=(6, 0))
+        self.refresh_button.pack(side="left", anchor="center", padx=(0, 6), before=self.sync_button)
         # Toolbar and search retain the same command handlers as the previous layout.
         self.clip_action_buttons = [self.refresh_button, self.stop_clips_button, self.sync_button]
         ttk.Label(update_bar, text=f"RunsFormingMusic v1.{RELAY_BUILD}", style="Muted.TLabel").pack(side="right")
         ttk.Label(update_bar, textvariable=self.identity, style="Muted.TLabel").pack(side="right", padx=18)
+        add_button_icons(root)
         root.update_idletasks()
         root.minsize(max(1160, audio_bar.winfo_reqwidth() + 56), 620)
         self.update_check_running = False
@@ -1566,7 +1629,7 @@ class RelayWindow:
             label = self.clip_canvases["label"]
             current = self.clip_setting(key).get("label", "")
             color = self.config.get("clip_labels", {}).get(current, "#1b2027")
-            cell["label"] = (rounded_badge(label, 5, y + (self.clip_row_height-24)/2, min(self.clip_canvas_widths["label"] - 5, 20 + len(current or "Select…") * 7), y + (self.clip_row_height+24)/2, color),
+            cell["label"] = (label.create_rectangle(0, y, self.clip_canvas_widths["label"], y + self.clip_row_height, fill=color, outline=""),
                              label.create_text(10, y + self.clip_row_height / 2, text=current or "Select…",
                                                anchor="w", fill="#14231f" if current and color != "#1b2027" else "#c3cdd8", font=("Segoe UI", 9)))
             menu = cell["menu"]

@@ -56,6 +56,7 @@ class ClipSettingsTests(unittest.TestCase):
             volume, label = window.clip_canvases['volume'], window.clip_canvases['label']
             rect, text = window.clip_widgets['a']['label']
             self.assertEqual(label.itemcget(rect, 'fill'), LABEL_COLORS['Light Green'])
+            self.assertEqual(label.coords(rect), [0, 0, window.clip_canvas_widths['label'], window.clip_row_height])
             self.assertEqual(label.itemcget(text, 'text'), 'Test')
             window.listbox.column('name', width=300)
             root.update()
