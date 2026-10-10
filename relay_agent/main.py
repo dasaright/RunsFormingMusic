@@ -1033,7 +1033,12 @@ class RelayWindow:
         selected = self.notebook.index(self.notebook.select())
         for index, button in enumerate(self.tab_buttons):
             button.configure(style="SelectedTab.TButton" if index == selected else "OtherTab.TButton")
-        self.root.after_idle(self.position_clip_widgets)
+        self.root.after_idle(self.settle_clip_tab_layout)
+
+    def settle_clip_tab_layout(self):
+        self.root.update_idletasks()
+        self.clip_position_signature = None
+        self.position_clip_widgets()
 
     def restore_direct_mode(self):
         self.direct_mode.set(True)
