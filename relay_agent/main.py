@@ -147,7 +147,10 @@ def render_button_icon(name, size=28, color="#52d4ba"):
             draw.ellipse((x-radius,y-radius,x+radius,y+radius), fill=color)
     def arc(box, start, end):
         draw.arc(tuple(round(v*scale) for v in box), start, end, fill=color, width=stroke)
-    if name == "refresh":
+    if name == "clear":
+        line([(7,7),(17,17)])
+        line([(17,7),(7,17)])
+    elif name == "refresh":
         arc((4,4,20,20), 35, 315)
         line([(17.6,4.8),(20,7.8),(15.5,8)])
     elif name == "check":
@@ -196,8 +199,12 @@ def add_button_icons(root):
                 key = (name,color)
                 if key not in cache:
                     cache[key] = ImageTk.PhotoImage(render_button_icon(name,size,color), master=root)
+                disabled_key = (name,"#66727f")
+                if disabled_key not in cache:
+                    cache[disabled_key] = ImageTk.PhotoImage(render_button_icon(name,size,"#66727f"), master=root)
                 child.graphite_icon = cache[key]
-                child.configure(image=cache[key], compound="left", text=text.lstrip("↻⇄■ "))
+                child.graphite_disabled_icon = cache[disabled_key]
+                child.configure(image=(cache[key], "disabled", cache[disabled_key]), compound="left", text=text.lstrip("↻⇄■ "))
             visit(child)
     visit(root)
 
@@ -254,16 +261,34 @@ def style_relay(root):
     root.option_add("*TCombobox*Listbox.foreground", "#e6edf3")
     root.option_add("*TCombobox*Listbox.selectBackground", "#25443f")
     root.graphite_toggle_images = []
-    for color, knob_x in (("#39434f", 10), ("#52d4ba", 28), ("#252d36", 10)):
-        switch = tk.PhotoImage(master=root, width=40, height=22)
-        for y in range(22):
-            for x in range(40):
-                dx = max(10-x, 0, x-29)
-                if dx*dx + (y-10.5)**2 <= 100:
-                    switch.put(color, (x, y))
-                if (x-knob_x)**2 + (y-10.5)**2 <= 56:
-                    switch.put("#e6edf3", (x, y))
-        root.graphite_toggle_images.append(switch)
+    dpi = max(1, float(root.tk.call("tk", "scaling")) / (96/72))
+    width, height = round(40*dpi), round(22*dpi)
+    for color, knob_x in (("#39434f", 10), ("#52d4ba", 30), ("#252d36", 10)):
+        image = Image.new("RGBA", (160,88))
+        draw = ImageDraw.Draw(image)
+        draw.rounded_rectangle((0,0,159,87), radius=44, fill=color)
+        draw.ellipse(((knob_x-7.5)*4,14,(knob_x+7.5)*4,74), fill="#e6edf3")
+        root.graphite_toggle_images.append(ImageTk.PhotoImage(image.resize((width,height), Image.Resampling.LANCZOS), master=root))
+    # Stretch only the middle of rounded thumbs; keep smooth end caps intact.
+    root.graphite_scroll_images = []
+    for color in ("#526170", "#52d4ba"):
+        image = Image.new("RGBA", (40,96))
+        ImageDraw.Draw(image).rounded_rectangle((4,0,35,95), radius=16, fill=color)
+        root.graphite_scroll_images.append(ImageTk.PhotoImage(image.resize((10,24), Image.Resampling.LANCZOS), master=root))
+    style.element_create("Graphite.Vertical.Scrollbar.thumb", "image", root.graphite_scroll_images[0],
+                         ("active", root.graphite_scroll_images[1]), border=(0,5,0,5), sticky="ns")
+    style.layout("Vertical.TScrollbar", [("Vertical.Scrollbar.trough", {"sticky":"nswe", "children":
+        [("Graphite.Vertical.Scrollbar.thumb", {"sticky":"ns"})]})])
+    style.configure("Vertical.TScrollbar", troughcolor="#14171c", bordercolor="#14171c",
+                    lightcolor="#14171c", darkcolor="#14171c", relief="flat", borderwidth=0, width=10)
+    root.graphite_client = tk.PhotoImage(master=root, width=1, height=1)
+    root.graphite_client.put("#14171c", (0,0))
+    style.element_create("Graphite.client", "image", root.graphite_client, sticky="nswe")
+    style.layout("TNotebook", [("Graphite.client", {"sticky":"nswe"})])
+    style.layout("Soundboard.Treeview", [("Treeview.treearea", {"sticky":"nswe"})])
+    style.configure("Soundboard.Treeview", borderwidth=0, relief="flat", bordercolor="#14171c")
+    style.configure("Toolbar.TLabel", foreground="#e6edf3", font=("Segoe UI",9))
+    style.configure("Search.TEntry", padding=(5,5,27,5))
     switches = root.graphite_toggle_images
     style.element_create("Graphite.switch", "image", switches[0],
                          ("disabled", switches[2]), ("selected", switches[1]), sticky="w")
@@ -1104,7 +1129,7 @@ class RelayWindow:
             command=self.toggle_direct_mode)
         self.direct_checkbox.pack(side="right", anchor="center", padx=(6, 0))
         ttk.Button(audio_bar, text="Audio ▾", style="Compact.TButton", command=self.direct_audio_settings).pack(side="right", anchor="center", padx=(6, 0))
-        left, right = ttk.Frame(self.notebook, padding=(0, 18)), ttk.Frame(self.notebook, padding=(0, 18))
+        left, right = ttk.Frame(self.notebook, padding=(0, 18)), ttk.Frame(self.notebook, padding=0)
         self.notebook.add(left, text="YouTube Music")
         self.notebook.add(right, text="Soundboard")
         self.notebook.bind("<<NotebookTabChanged>>", self.update_tabs)
@@ -1167,24 +1192,30 @@ class RelayWindow:
         search_bar = ttk.Frame(audio_bar)
         search_bar.pack(side="left", anchor="center")
         # Stop stays beside search; library and audio settings share the top toolbar.
-        self.stop_clips_button = ttk.Button(search_bar, text="■  Stop clips", style="Compact.TButton", command=self.stop)
-        self.stop_clips_button.pack(side="left", padx=(0, 10))
-        ttk.Label(search_bar, text="Search clips", style="Muted.TLabel").pack(side="left", padx=(0, 6))
+        self.stop_clips_button = ttk.Button(audio_bar, text="■  Stop clips", style="Compact.TButton", command=self.stop)
+        self.stop_clips_button.pack(side="left", anchor="center", padx=(0, 6), before=search_bar)
+        ttk.Label(search_bar, text="Search clips", style="Toolbar.TLabel").pack(side="left", padx=(0, 6))
         self.clip_search = tk.StringVar(value="")
-        self.clip_search_entry = ttk.Entry(search_bar, textvariable=self.clip_search, width=12)
-        self.clip_search_entry.pack(side="left")
-        self.clip_search.trace_add("write", lambda *args: self.render_clips())
-        ttk.Label(search_bar, text="Bot volume", style="Muted.TLabel").pack(side="left", padx=(12, 4))
+        self.search_field = ttk.Frame(search_bar)
+        self.search_field.pack(side="left")
+        self.clip_search_entry = ttk.Entry(self.search_field, textvariable=self.clip_search, width=15, style="Search.TEntry")
+        self.clip_search_entry.pack()
+        clear_icon = ImageTk.PhotoImage(render_button_icon("clear",20,"#a3adb9"), master=root)
+        self.clear_search_button = tk.Label(self.search_field, image=clear_icon, background="#1b2027", bd=0, cursor="hand2")
+        self.clear_search_button.graphite_icon = clear_icon
+        self.clear_search_button.bind("<Button-1>", self.clear_clip_search)
+        self.clip_search.trace_add("write", self.update_clip_search)
+        ttk.Label(search_bar, text="Bot volume", style="Toolbar.TLabel").pack(side="left", padx=(12, 4))
         self.bot_clip_volume = tk.DoubleVar(value=max(0, min(100, config.get("bot_clip_volume", 100))))
         self.bot_volume_text = tk.StringVar(value=f"{round(self.bot_clip_volume.get())}%")
         SleekScale(search_bar, variable=self.bot_clip_volume, command=self.set_bot_clip_volume, width=100).pack(side="left", padx=(6, 4))
         self.bot_volume_label = ttk.Label(search_bar, textvariable=self.bot_volume_text, width=6, anchor="w", style="Muted.TLabel")
         self.bot_volume_label.pack(side="left", padx=(0, 6))
-        details = ttk.Frame(right)
-        details.pack(fill="x", pady=(0, 8))
-        ttk.Label(details, text="Click a clip to play • Right-click to manage", anchor="e", style="Muted.TLabel").pack(fill="x")
-        self.folder_label = ttk.Label(details, textvariable=self.folder, anchor="e", style="Muted.TLabel")
-        self.folder_label.pack(fill="x", pady=(5, 0))
+        details = ttk.Frame(tabs_bar)
+        details.pack(side="right", anchor="center")
+        ttk.Label(details, text="Click a clip to play • Right-click to manage", anchor="e", style="Muted.TLabel").pack(side="left", padx=(12, 18))
+        self.folder_label = ttk.Label(details, textvariable=self.folder, width=30, anchor="e", style="Muted.TLabel")
+        self.folder_label.pack(side="left")
         self.sync_running = False
         self.sort_keys = [("name", False)]
         self.sort_column = "name"
@@ -1250,7 +1281,7 @@ class RelayWindow:
         ttk.Label(update_bar, textvariable=self.identity, style="Muted.TLabel").pack(side="right", padx=18)
         add_button_icons(root)
         root.update_idletasks()
-        root.minsize(max(1160, audio_bar.winfo_reqwidth() + 56), 620)
+        root.minsize(max(1160, max(audio_bar.winfo_reqwidth(), tabs_bar.winfo_reqwidth()) + 56), 620)
         self.update_check_running = False
         self.pending_update = None
         status_file = FILES_DIR / "update-status.txt"
@@ -1596,6 +1627,18 @@ class RelayWindow:
             state.update(pending=0.0, after=None)
         self.listbox.yview(*args)
         self.position_clip_widgets()
+
+    def update_clip_search(self, *args):
+        if self.clip_search.get():
+            self.clear_search_button.place(relx=1, rely=0.5, anchor="e", x=-5)
+        else:
+            self.clear_search_button.place_forget()
+        self.render_clips()
+
+    def clear_clip_search(self, event=None):
+        self.clip_search.set("")
+        self.clip_search_entry.focus_set()
+        return "break"
 
     def clip_setting(self, key):
         return self.config.setdefault("clip_settings", {}).setdefault(key, {})
