@@ -162,6 +162,7 @@ class HeaderDragTests(unittest.TestCase):
             self.assertGreater(window.tab_buttons[0].winfo_height(), window.tab_buttons[1].winfo_height())
             from tkinter import ttk
             ttk.Style(root).configure('Treeview.Heading', padding=(8, 18))
+            root.update()  # Flush the theme change after exercising both tabs.
             window.agent.local_files = {'clip':Path('Test.mp3')}
             window.clip_origins = {'clip':'Shared'}
             window.render_clips(); root.update()
