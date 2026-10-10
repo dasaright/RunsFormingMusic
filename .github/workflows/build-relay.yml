@@ -68,7 +68,7 @@ jobs:
       - name: Build relay executable
         run: >-
           pyinstaller --clean --noconfirm --onefile --windowed --paths .
-          --collect-all piper --collect-all onnxruntime --collect-all sounddevice --collect-all _sounddevice_data --collect-data certifi --collect-all tkinterdnd2 --name TacoBot relay_agent/main.py
+          --collect-all ctranslate2 --collect-all sentencepiece --collect-all piper --collect-all onnxruntime --collect-all sounddevice --collect-all _sounddevice_data --collect-data certifi --collect-all tkinterdnd2 --name TacoBot relay_agent/main.py
 
       - name: Download current yt-dlp
         shell: pwsh
@@ -103,10 +103,19 @@ jobs:
           audio=wave.open(str(output)); assert audio.getnframes()>0; audio.close();
           print('Piper model download and real speech synthesis verified')"
 
+      - name: Verify real local translation
+        run: >-
+          python -c "from relay_agent.translation import LocalTranslator;
+          translator=LocalTranslator('translation-build-test');
+          result=translator.translate('Hello, how are you?', 'en', 'fr');
+          assert result and result != 'Hello, how are you?';
+          print('Local translation verified:',result)"
+
       - name: Verify packaged executable and dependencies
         shell: pwsh
         run: |
           $env:TACOBOT_TTS_TEST_DIR = (Resolve-Path "tts-build-test").Path
+          $env:TACOBOT_TRANSLATION_TEST_DIR = (Resolve-Path "translation-build-test").Path
           $process = Start-Process -FilePath (Resolve-Path "dist/TacoBot.exe") -ArgumentList "--self-test" -PassThru
           if (-not $process.WaitForExit(60000)) {
             taskkill /PID $process.Id /T /F

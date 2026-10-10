@@ -32,7 +32,7 @@ class SpeechPlaybackTests(unittest.IsolatedAsyncioTestCase):
             agent.speech.synthesize=Mock(return_value=Path(folder)/('a'*64+'.wav'))
             await agent.play_text('Hello')
             payload=agent.send_json.call_args.args[0]
-            agent.speech.synthesize.assert_called_once_with('Hello','en_US-lessac-medium')
+            agent.speech.synthesize.assert_called_once_with('Hello','en_US-lessac-medium',0)
             self.assertEqual(payload['type'],'local_play')
             self.assertIsNone(payload['guild_id'])
             self.assertIn(payload['file_id'],agent.tts_files)

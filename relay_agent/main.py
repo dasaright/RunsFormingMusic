@@ -25,12 +25,14 @@ if __package__:
     from .shared_clips import sync_clips, edit_shared_clip, check_share_target
     from .updater import find_update, prepare_update, launch_installer
     from .direct_audio import DirectAudio, audio_devices
-    from .tts import PiperSpeech, MAX_TEXT, VOICE, VOICE_OPTIONS
+    from .translation import LocalTranslator, LANGUAGES
+    from .tts import PiperSpeech, MAX_TEXT, VOICE, VOICE_OPTIONS, VOICE_CATALOG
 else:
     from shared_clips import sync_clips, edit_shared_clip, check_share_target
     from updater import find_update, prepare_update, launch_installer
     from direct_audio import DirectAudio, audio_devices
-    from tts import PiperSpeech, MAX_TEXT, VOICE, VOICE_OPTIONS
+    from translation import LocalTranslator, LANGUAGES
+    from tts import PiperSpeech, MAX_TEXT, VOICE, VOICE_OPTIONS, VOICE_CATALOG
 
 
 RELAY_BUILD = 0
@@ -563,6 +565,7 @@ class RelayAgent:
         self.tts_files = {}
         self.tts_lock = asyncio.Lock()
         self.speech = PiperSpeech(FILES_DIR / "TTS")
+        self.translator = LocalTranslator(FILES_DIR / "Translation")
         self.normalization_cache = dict(config.get("clip_normalization", {}))
         self.normalization_locks = {}
         self.preload_task = None
@@ -887,7 +890,7 @@ class RelayAgent:
                     raise
                 await asyncio.sleep(0.1)
 
-    async def play_text(self, text, voice_id=VOICE):
+    async def play_text(self, text, voice_id=VOICE, speaker_id=0):
         if self.tts_lock.locked():
             self.events.put({"error": "Wait for the current text to finish generating."})
             return
@@ -896,7 +899,7 @@ class RelayAgent:
                 if self.websocket is None:
                     raise ValueError("Connect your relay token before playing text.")
                 self.events.put({"status": "Generating speech… First use downloads the Piper voice."})
-                path = await asyncio.to_thread(self.speech.synthesize, text, voice_id)
+                path = await asyncio.to_thread(self.speech.synthesize, text, voice_id, speaker_id)
                 file_id = "tts:" + path.stem
                 self.tts_files[file_id] = path
                 await self.send_json({"type": "local_play", "guild_id": None,
@@ -1170,9 +1173,15 @@ class RelayWindow:
         chosen_voice = config.get("tts_voice", VOICE)
         self.tts_voice = tk.StringVar(value=next((label for label, voice in VOICE_OPTIONS.items() if voice == chosen_voice), next(iter(VOICE_OPTIONS))))
         self.tts_voice_picker = ttk.Combobox(voice_row, textvariable=self.tts_voice,
-                                           values=list(VOICE_OPTIONS), state="readonly", width=30)
+                                           values=list(VOICE_OPTIONS), state="readonly", width=45)
         self.tts_voice_picker.pack(side="left")
         self.tts_voice_picker.bind("<<ComboboxSelected>>", self.save_tts_voice)
+        ttk.Label(voice_row, text="Speaker").pack(side="left", padx=(16, 8))
+        self.tts_speaker = tk.StringVar(value=str(config.get("tts_speaker", 0)))
+        self.tts_speaker_picker = ttk.Combobox(voice_row, textvariable=self.tts_speaker, state="readonly", width=18)
+        self.tts_speaker_picker.pack(side="left")
+        self.tts_speaker_picker.bind("<<ComboboxSelected>>", self.save_tts_voice)
+        self.update_tts_speakers()
         self.tts_text = tk.Text(tts_panel, height=8, wrap="word", font=("Segoe UI", 12),
                                 background="#1b2027", foreground="#e6edf3", insertbackground="#52d4ba",
                                 relief="flat", highlightthickness=0, padx=16, pady=12)
@@ -1184,7 +1193,24 @@ class RelayWindow:
         self.tts_play_button = ttk.Button(tts_controls, text="▶  Play text", style="Primary.TButton", command=self.play_text)
         self.tts_play_button.pack(side="left")
         ttk.Button(tts_controls, text="🛑  Stop speech / clips", command=lambda: self.send({"type": "local_stop", "guild_id": None})).pack(side="left", padx=10)
-        ttk.Label(tts_panel, text=f"Piper · Six English voices · Up to {MAX_TEXT} characters · Generated locally, no API fees").pack(anchor="w")
+        ttk.Label(tts_panel, text=f"Piper · English, Dutch, German, French, Bulgarian · Up to {MAX_TEXT} characters · Generated locally, no API fees").pack(anchor="w")
+
+        translation_row = ttk.Frame(tts_panel)
+        translation_row.pack(fill="x", pady=(20, 10))
+        ttk.Label(translation_row, text="Translate from").pack(side="left", padx=(0, 8))
+        self.translation_source = tk.StringVar(value=config.get("translation_source", "English"))
+        self.translation_target = tk.StringVar(value=config.get("translation_target", "German"))
+        ttk.Combobox(translation_row, textvariable=self.translation_source, values=list(LANGUAGES), state="readonly", width=12).pack(side="left")
+        ttk.Label(translation_row, text="to").pack(side="left", padx=8)
+        ttk.Combobox(translation_row, textvariable=self.translation_target, values=list(LANGUAGES), state="readonly", width=12).pack(side="left")
+        self.translate_button = ttk.Button(translation_row, text="Translate", command=self.translate_text)
+        self.translate_button.pack(side="left", padx=10)
+        self.translated_play_button = ttk.Button(translation_row, text="Play translated", command=self.play_translated, state="disabled")
+        self.translated_play_button.pack(side="left")
+        self.translated_text = tk.Text(tts_panel, height=5, wrap="word", font=("Segoe UI", 12),
+                                       background="#1b2027", foreground="#e6edf3", relief="flat", padx=16, pady=12, state="disabled")
+        self.translated_text.pack(fill="x")
+        ttk.Label(tts_panel, text="Translation runs locally. First use downloads the required language models.").pack(anchor="w", pady=8)
 
         self.notebook.bind("<<NotebookTabChanged>>", self.update_tabs)
         now_card = ttk.Frame(left, style="Card.TFrame", padding=22)
@@ -1353,9 +1379,60 @@ class RelayWindow:
         if config.get("direct_soundboard"):
             root.after(300, self.restore_direct_mode)
 
+    def update_tts_speakers(self):
+        voice = VOICE_OPTIONS[self.tts_voice.get()]
+        info = VOICE_CATALOG[voice]
+        names = {number: name for name, number in info['speaker_names'].items()}
+        self.tts_speaker_options = {f"{number}: {names.get(number, 'Speaker '+str(number))}": number for number in range(info['speakers'])}
+        values = list(self.tts_speaker_options)
+        current = self.config.get("tts_speaker", 0)
+        self.tts_speaker_picker.configure(values=values)
+        self.tts_speaker.set(next((label for label, number in self.tts_speaker_options.items() if number == current),values[0]))
+
     def save_tts_voice(self, event=None):
-        self.config["tts_voice"] = VOICE_OPTIONS[self.tts_voice.get()]
+        voice = VOICE_OPTIONS[self.tts_voice.get()]
+        changed = voice != self.config.get("tts_voice", VOICE)
+        self.config["tts_voice"] = voice
+        if changed:
+            self.config["tts_speaker"] = 0
+            self.update_tts_speakers()
+        self.config["tts_speaker"] = self.tts_speaker_options.get(self.tts_speaker.get(),0)
         self.save()
+
+    def translate_text(self):
+        text = self.tts_text.get("1.0", "end-1c").strip()
+        if not text or len(text) > MAX_TEXT:
+            self.status.set(f"Enter between 1 and {MAX_TEXT} characters.")
+            return
+        source, target = self.translation_source.get(), self.translation_target.get()
+        self.config.update(translation_source=source, translation_target=target)
+        self.save()
+        self.translate_button.configure(state="disabled")
+        self.translated_play_button.configure(state="disabled")
+        self.status.set("Translating locally… First use downloads language models.")
+        def worker():
+            try:
+                output = self.agent.translator.translate(text, LANGUAGES[source], LANGUAGES[target])
+                self.agent.events.put({"translation_done": True,"translated_text": output,"translated_language": LANGUAGES[target]})
+            except Exception as exc:
+                self.agent.events.put({"translation_done": True,"error": "Translation failed: " + clean_error(exc)})
+        threading.Thread(target=worker,daemon=True).start()
+
+    def play_translated(self):
+        text = self.translated_text.get("1.0", "end-1c").strip()
+        if not text or self.tts_play_button.instate(["disabled"]):
+            return
+        language = self.translated_language
+        current = VOICE_OPTIONS[self.tts_voice.get()]
+        if VOICE_CATALOG[current]['language'] != language:
+            choice = next(label for label, voice in VOICE_OPTIONS.items() if VOICE_CATALOG[voice]['language'] == language and VOICE_CATALOG[voice]['quality']=='medium')
+            self.tts_voice.set(choice)
+            self.save_tts_voice()
+        if len(text)>MAX_TEXT:
+            self.status.set("Translation is longer than the speech limit. Shorten the input text.")
+            return
+        self.tts_play_button.configure(state="disabled")
+        asyncio.run_coroutine_threadsafe(self.agent.play_text(text, VOICE_OPTIONS[self.tts_voice.get()], self.tts_speaker_options[self.tts_speaker.get()]), self.loop)
 
     def play_text(self, event=None):
         if self.tts_play_button.instate(["disabled"]):
@@ -1365,7 +1442,7 @@ class RelayWindow:
             self.status.set(f"Enter between 1 and {MAX_TEXT} characters.")
             return "break"
         self.tts_play_button.configure(state="disabled")
-        asyncio.run_coroutine_threadsafe(self.agent.play_text(text, VOICE_OPTIONS[self.tts_voice.get()]), self.loop)
+        asyncio.run_coroutine_threadsafe(self.agent.play_text(text, VOICE_OPTIONS[self.tts_voice.get()], self.tts_speaker_options[self.tts_speaker.get()]), self.loop)
         return "break"
 
     def update_tabs(self, event=None):
@@ -2338,6 +2415,16 @@ class RelayWindow:
                     self.update_idle_since = None
             if event.get("import_done") and event.get("folder") == self.folder.get():
                 self.refresh_files()
+            if event.get("translation_done"):
+                self.translate_button.configure(state="normal")
+                if "translated_text" in event:
+                    self.translated_text.configure(state="normal")
+                    self.translated_text.delete("1.0", "end")
+                    self.translated_text.insert("1.0", event["translated_text"])
+                    self.translated_text.configure(state="disabled")
+                    self.translated_language = event["translated_language"]
+                    self.translated_play_button.configure(state="normal")
+                    self.status.set("Translation ready.")
             if event.get("tts_done"):
                 self.tts_play_button.configure(state="normal")
             if event.get("sync_done"):
@@ -2441,6 +2528,9 @@ if __name__ == "__main__":
                 speech_test = PiperSpeech(os.environ["TACOBOT_TTS_TEST_DIR"])
                 with wave.open(str(speech_test.synthesize("Packaged TacoBot speech test."))) as audio:
                     assert audio.getnframes() > 0
+            if os.getenv("TACOBOT_TRANSLATION_TEST_DIR"):
+                translated = LocalTranslator(os.environ["TACOBOT_TRANSLATION_TEST_DIR"]).translate("Hello", "en", "fr")
+                assert translated and translated != "Hello"
             import sounddevice
             assert sounddevice.get_portaudio_version()[0] > 0
             test_root = create_root()

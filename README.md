@@ -180,3 +180,11 @@ Open the **TTS** tab, enter text, and press **Enter** or **Play text**. Shift+En
 Piper generates speech locally. Choose Lessac, Amy, Ryan, or Sam (US English), or Alan or Alba (British English) in the Voice selector; your choice is remembered. Each model downloads once on first use. The first use downloads the voice into `Files/TTS/voice`; later generation works offline (the Discord connection still needs internet). Messages are limited to 1,000 characters. Recent speech is cached under `Files/TTS/audio` and is not uploaded to sharedclips. This tab always plays through the bot, independently of the Direct soundboard switch.
 
 Piper is GPL-3.0-or-later: https://github.com/OHF-Voice/piper1-gpl . Its source and license are available there and in the pinned PyPI source distribution at https://pypi.org/project/piper-tts/1.8.0/ . Voice attribution/license details are downloaded beside the model as `MODEL_CARD`: https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/lessac/medium/MODEL_CARD .
+
+## Translation and voice catalog
+
+TTS includes every Piper model/quality option for English, Dutch, German, French, and Bulgarian. Choose a **Voice** and, for multi-speaker models, a **Speaker**. Choices are saved. Full catalog: https://github.com/dasaright/TacoBot/blob/main/VOICES.md .
+
+Select **Translate from** and a target language, then press **Translate**. The result appears below without replacing your input. **Play translated** automatically selects a voice in the output language when needed. Translation uses local CTranslate2 inference with Argos language models; models download on first use and are cached in `Files/Translation`. Non-English pairs translate through English. No translation API fees, and text is processed on your PC. Model downloads can take time and use disk space; translation quality varies.
+
+Argos models/source: https://github.com/argosopentech/argos-translate and https://github.com/argosopentech/argospm-index . CTranslate2: https://github.com/OpenNMT/CTranslate2 .

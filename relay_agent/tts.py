@@ -10,13 +10,15 @@ from pathlib import Path
 import certifi
 
 VOICE = 'en_US-lessac-medium'
+try:
+    from .voice_catalog import VOICE_CATALOG
+except ImportError:
+    from voice_catalog import VOICE_CATALOG
+
+LANGUAGES = {'English': 'en', 'Dutch': 'nl', 'German': 'de', 'French': 'fr', 'Bulgarian': 'bg'}
 VOICE_OPTIONS = {
-    'Lessac — US English': 'en_US-lessac-medium',
-    'Amy — US English': 'en_US-amy-medium',
-    'Ryan — US English': 'en_US-ryan-medium',
-    'Sam — US English': 'en_US-sam-medium',
-    'Alan — British English': 'en_GB-alan-medium',
-    'Alba — British English': 'en_GB-alba-medium',
+    f"{next(label for label, code in LANGUAGES.items() if code == info['language'])} · {info['name']} ({info['region']}, {info['quality']})": key
+    for key, info in sorted(VOICE_CATALOG.items())
 }
 BASE_URL = 'https://huggingface.co/rhasspy/piper-voices/resolve/main/' 
 MAX_TEXT = 1000
@@ -54,16 +56,18 @@ class PiperSpeech:
                 temporary.unlink(missing_ok=True)
         return folder / (voice_id + '.onnx')
 
-    def synthesize(self, text, voice_id=VOICE):
+    def synthesize(self, text, voice_id=VOICE, speaker_id=0):
         if voice_id not in VOICE_OPTIONS.values():
             raise ValueError("Choose a supported Piper voice.")
+        if not 0 <= int(speaker_id) < VOICE_CATALOG[voice_id]["speakers"]:
+            raise ValueError("Choose a valid speaker.")
         text = text.strip()
         if not text or len(text) > MAX_TEXT:
             raise ValueError(f'Enter between 1 and {MAX_TEXT} characters.')
         with self.lock:
             cache = self.directory / 'audio'
             cache.mkdir(parents=True, exist_ok=True)
-            target = cache / (hashlib.sha256((voice_id + text).encode()).hexdigest() + '.wav')
+            target = cache / (hashlib.sha256((voice_id + str(speaker_id) + text).encode()).hexdigest() + '.wav')
             if target.is_file():
                 return target
             if self.voice is None or self.loaded_voice != voice_id:
@@ -82,7 +86,11 @@ class PiperSpeech:
             temporary = target.with_suffix('.tmp')
             try:
                 with wave.open(str(temporary), 'wb') as audio:
-                    self.voice.synthesize_wav(text, audio)
+                    if VOICE_CATALOG[voice_id]['speakers'] > 1:
+                        from piper import SynthesisConfig
+                        self.voice.synthesize_wav(text, audio, syn_config=SynthesisConfig(speaker_id=int(speaker_id)))
+                    else:
+                        self.voice.synthesize_wav(text, audio)
                 temporary.replace(target)
             finally:
                 temporary.unlink(missing_ok=True)
