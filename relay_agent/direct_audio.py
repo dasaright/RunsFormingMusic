@@ -138,7 +138,12 @@ class DirectAudio:
         entry['thread'] = threading.Thread(target=worker, daemon=True)
         with self.lock:
             self.clips[marker] = entry
-        entry['thread'].start()
+            try:
+                # Stop cannot observe an entry whose worker has not started yet.
+                entry['thread'].start()
+            except Exception:
+                self.clips.pop(marker, None)
+                raise
 
     def stop_file(self, file_id=None):
         with self.lock:
