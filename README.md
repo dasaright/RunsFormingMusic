@@ -172,3 +172,11 @@ With the relay window active, press Ctrl+V to add the first YouTube link found i
 Right-click a soundboard row to rename or delete its file on this PC. Rename preserves the audio extension and rejects conflicts. Delete asks for confirmation. Shared entries are local copies: sync can restore a deleted shared clip, and a renamed shared copy is uploaded as a new clip. These actions do not delete or rename GitHub files. **Change folder**, to the right of the local folder path, selects and remembers your private clip folder.
 
 Renaming or deleting an active clip stops only that file's playback on your relay and waits for FFmpeg to release its file handle. Other clips and music continue. Windows file-lock errors are retried briefly; if another application still holds the file, the error is shown.
+
+## Text to speech
+
+Open the **TTS** tab, enter text, and press **Enter** or **Play text**. Shift+Enter adds a new line. Join a Discord voice channel first; the bot follows the Discord user associated with your relay token. Speech is mixed with music and clips, with no now-playing post. **Stop speech / clips** stops current bot soundboard audio.
+
+Piper generates speech locally using the Lessac English voice. The first use downloads the voice into `Files/TTS/voice`; later generation works offline (the Discord connection still needs internet). Messages are limited to 1,000 characters. Recent speech is cached under `Files/TTS/audio` and is not uploaded to sharedclips. This tab always plays through the bot, independently of the Direct soundboard switch.
+
+Piper is GPL-3.0-or-later: https://github.com/OHF-Voice/piper1-gpl . Its source and license are available there and in the pinned PyPI source distribution at https://pypi.org/project/piper-tts/1.8.0/ . Voice attribution/license details are downloaded beside the model as `MODEL_CARD`: https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/lessac/medium/MODEL_CARD .

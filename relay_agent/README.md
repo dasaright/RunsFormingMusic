@@ -215,3 +215,11 @@ First-time setup:
 4. Click clip filenames. Audio goes to the cable and speakers, without requesting bot playback or connecting the bot to voice. Your microphone is mixed into the cable only, so you do not hear your own microphone through the speakers. Existing normalization and clip sliders still apply.
 
 **Stop all clips** stops direct clips but keeps microphone passthrough active. Unchecking the box stops direct playback and microphone passthrough and restores bot playback for clips. When unchecking, switch Discord's Input Device back to your physical microphone. The relay cannot change Discord's device selection automatically. Direct mode requires the relay to remain open; closing it releases its audio devices. Auto-updates wait for direct clips to finish, while manual installation can stop them immediately.
+
+## Text to speech
+
+Open the **TTS** tab, enter text, and press **Enter** or **Play text**. Shift+Enter adds a new line. Join a Discord voice channel first; the bot follows the Discord user associated with your relay token. Speech is mixed with music and clips, with no now-playing post. **Stop speech / clips** stops current bot soundboard audio.
+
+Piper generates speech locally using the Lessac English voice. The first use downloads the voice into `Files/TTS/voice`; later generation works offline (the Discord connection still needs internet). Messages are limited to 1,000 characters. Recent speech is cached under `Files/TTS/audio` and is not uploaded to sharedclips. This tab always plays through the bot, independently of the Direct soundboard switch.
+
+Piper is GPL-3.0-or-later: https://github.com/OHF-Voice/piper1-gpl . Its source and license are available there and in the pinned PyPI source distribution at https://pypi.org/project/piper-tts/1.8.0/ . Voice attribution/license details are downloaded beside the model as `MODEL_CARD`: https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/lessac/medium/MODEL_CARD .

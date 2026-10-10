@@ -25,10 +25,12 @@ if __package__:
     from .shared_clips import sync_clips, edit_shared_clip, check_share_target
     from .updater import find_update, prepare_update, launch_installer
     from .direct_audio import DirectAudio, audio_devices
+    from .tts import PiperSpeech, MAX_TEXT
 else:
     from shared_clips import sync_clips, edit_shared_clip, check_share_target
     from updater import find_update, prepare_update, launch_installer
     from direct_audio import DirectAudio, audio_devices
+    from tts import PiperSpeech, MAX_TEXT
 
 
 RELAY_BUILD = 0
@@ -554,6 +556,9 @@ class RelayAgent:
         self.stream_task = None
         self.stream_request_id = None
         self.local_files = {}
+        self.tts_files = {}
+        self.tts_lock = asyncio.Lock()
+        self.speech = PiperSpeech(FILES_DIR / "TTS")
         self.normalization_cache = dict(config.get("clip_normalization", {}))
         self.normalization_locks = {}
         self.preload_task = None
@@ -715,7 +720,7 @@ class RelayAgent:
         ytdlp_error_task = None
         ffmpeg_error_task = None
         try:
-            local_path = self.local_files.get(url[6:]) if url.startswith("local:") else None
+            local_path = (self.local_files.get(url[6:]) or self.tts_files.get(url[6:])) if url.startswith("local:") else None
             if url.startswith("local:") and local_path is None:
                 raise ValueError("This audio file is no longer in the selected folder. Refresh the library.")
             ytdlp_args = youtube_stream_args(self.config, url)
@@ -877,6 +882,26 @@ class RelayAgent:
                 if getattr(exc, "winerror", None) not in {32, 33} or attempt == 29:
                     raise
                 await asyncio.sleep(0.1)
+
+    async def play_text(self, text):
+        if self.tts_lock.locked():
+            self.events.put({"error": "Wait for the current text to finish generating."})
+            return
+        try:
+            async with self.tts_lock:
+                if self.websocket is None:
+                    raise ValueError("Connect your relay token before playing text.")
+                self.events.put({"status": "Generating speech… First use downloads the Piper voice."})
+                path = await asyncio.to_thread(self.speech.synthesize, text)
+                file_id = "tts:" + path.stem
+                self.tts_files[file_id] = path
+                await self.send_json({"type": "local_play", "guild_id": None,
+                                      "file_id": file_id, "title": "Text to speech"})
+                self.events.put({"status": "Speech ready. Sending to your Discord voice channel."})
+        except Exception as exc:
+            self.events.put({"error": "Could not play text: " + clean_error(exc)})
+        finally:
+            self.events.put({"tts_done": True})
 
     async def handle_command(self, raw):
         try:
@@ -1105,7 +1130,7 @@ class RelayWindow:
         self.notebook = ttk.Notebook(root)
         self.notebook.pack(fill="both", expand=True, padx=28)
         self.tab_buttons = []
-        for index, text in enumerate(("YouTube Music", "Soundboard")):
+        for index, text in enumerate(("YouTube Music", "Soundboard", "TTS")):
             button = ttk.Button(tabs_bar, text=text, style="SelectedTab.TButton" if index == 0 else "OtherTab.TButton",
                                 command=lambda i=index: self.notebook.select(i))
             button.pack(side="left", anchor="s", padx=(0, 6))
@@ -1131,6 +1156,23 @@ class RelayWindow:
         left, right = ttk.Frame(self.notebook, padding=(0, 18)), ttk.Frame(self.notebook, padding=0)
         self.notebook.add(left, text="YouTube Music")
         self.notebook.add(right, text="Soundboard")
+        tts_panel = ttk.Frame(self.notebook, padding=(0, 22))
+        self.notebook.add(tts_panel, text="TTS")
+        ttk.Label(tts_panel, text="TEXT TO SPEECH", style="CardMuted.TLabel").pack(anchor="w")
+        ttk.Label(tts_panel, text="Type text and press Enter to speak through the bot. Shift+Enter adds a new line.").pack(anchor="w", pady=(10, 14))
+        self.tts_text = tk.Text(tts_panel, height=8, wrap="word", font=("Segoe UI", 12),
+                                background="#1b2027", foreground="#e6edf3", insertbackground="#52d4ba",
+                                relief="flat", highlightthickness=0, padx=16, pady=12)
+        self.tts_text.pack(fill="x")
+        self.tts_text.bind("<Return>", self.play_text)
+        self.tts_text.bind("<Shift-Return>", lambda event: None)
+        tts_controls = ttk.Frame(tts_panel)
+        tts_controls.pack(fill="x", pady=14)
+        self.tts_play_button = ttk.Button(tts_controls, text="▶  Play text", style="Primary.TButton", command=self.play_text)
+        self.tts_play_button.pack(side="left")
+        ttk.Button(tts_controls, text="🛑  Stop speech / clips", command=lambda: self.send({"type": "local_stop", "guild_id": None})).pack(side="left", padx=10)
+        ttk.Label(tts_panel, text=f"Piper · Lessac English voice · Up to {MAX_TEXT} characters · Generated locally, no API fees").pack(anchor="w")
+
         self.notebook.bind("<<NotebookTabChanged>>", self.update_tabs)
         now_card = ttk.Frame(left, style="Card.TFrame", padding=22)
         now_card.pack(fill="x", pady=(0, 16))
@@ -1297,6 +1339,17 @@ class RelayWindow:
         root.protocol("WM_DELETE_WINDOW", self.close)
         if config.get("direct_soundboard"):
             root.after(300, self.restore_direct_mode)
+
+    def play_text(self, event=None):
+        if self.tts_play_button.instate(["disabled"]):
+            return "break"
+        text = self.tts_text.get("1.0", "end-1c").strip()
+        if not text or len(text) > MAX_TEXT:
+            self.status.set(f"Enter between 1 and {MAX_TEXT} characters.")
+            return "break"
+        self.tts_play_button.configure(state="disabled")
+        asyncio.run_coroutine_threadsafe(self.agent.play_text(text), self.loop)
+        return "break"
 
     def update_tabs(self, event=None):
         self.clip_position_signature = None
@@ -2268,6 +2321,8 @@ class RelayWindow:
                     self.update_idle_since = None
             if event.get("import_done") and event.get("folder") == self.folder.get():
                 self.refresh_files()
+            if event.get("tts_done"):
+                self.tts_play_button.configure(state="normal")
             if event.get("sync_done"):
                 self.sync_running = False
                 self.refresh_files()
@@ -2362,6 +2417,8 @@ if __name__ == "__main__":
     elif "--self-test" in sys.argv:
         try:
             verify_tools()
+            from piper import PiperVoice
+            assert PiperVoice
             import sounddevice
             assert sounddevice.get_portaudio_version()[0] > 0
             test_root = create_root()

@@ -68,7 +68,7 @@ jobs:
       - name: Build relay executable
         run: >-
           pyinstaller --clean --noconfirm --onefile --windowed --paths .
-          --collect-all sounddevice --collect-all _sounddevice_data --collect-data certifi --collect-all tkinterdnd2 --name TacoBot relay_agent/main.py
+          --collect-all piper --collect-all onnxruntime --collect-all sounddevice --collect-all _sounddevice_data --collect-data certifi --collect-all tkinterdnd2 --name TacoBot relay_agent/main.py
 
       - name: Download current yt-dlp
         shell: pwsh
@@ -94,6 +94,14 @@ jobs:
         run: |
           $env:TEST_FFMPEG_PATH = (Resolve-Path "dist/Files/ffmpeg.exe").Path
           python -m unittest discover -s tests -p test_clip_files.py -v
+
+      - name: Verify real Piper synthesis
+        run: >-
+          python -c "import tempfile,wave; from relay_agent.tts import PiperSpeech;
+          speech=PiperSpeech(tempfile.mkdtemp());
+          output=speech.synthesize('TacoBot speech test.');
+          audio=wave.open(str(output)); assert audio.getnframes()>0; audio.close();
+          print('Piper model download and real speech synthesis verified')"
 
       - name: Verify packaged executable and dependencies
         shell: pwsh
